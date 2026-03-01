@@ -544,8 +544,8 @@ void count_intersections(ProjectedGaussianPtr* pg, int n,
 }
 
 void main() {
-    // const int num_gaussians = NUM_QPUS * SIMD_WIDTH * 20;
-    const int num_gaussians = NUM_QPUS * SIMD_WIDTH * 1;
+    const int num_gaussians = NUM_QPUS * SIMD_WIDTH * 20;
+    // const int num_gaussians = NUM_QPUS * SIMD_WIDTH * 1;
     const int MiB = 1024 * 1024;
     arena_init(&data_arena, MiB * 40);
 

@@ -205,8 +205,7 @@
     fadd r2, r2, r1
 
     mov r0, SH_C2_2
-    mov r3, 2.0
-    fmul r1, r3, zz
+    fmul r1, 2.0, zz
     fsub r1, r1, xx
     fsub r1, r1, yy
     fmul r1, r1, r0
@@ -270,8 +269,7 @@
     vpm_to_reg_vec16 temp_b3, 3
 
     mov r0, 3.0
-    mov r3, 2.0
-    fmul r1, r3, zz
+    fmul r1, 2.0, zz
     fadd r3, xx, yy
     fmul r3, r3, r0
     fsub r1, r1, r3
@@ -306,11 +304,8 @@
     fmul r1, r1, temp_b3
     fadd r2, r2, r1
 
-    mov r0, 0.5
-    fadd r2, r2, r0
-
-    mov r0, 0.0
-    fmax r2, r2, r0
+    fadd r2, r2, 0.5
+    fmax r2, r2, 0.0
 
     reg_to_vpm_vec16 r2, 0
     vpm_to_mem_vec16 color, 0

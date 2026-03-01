@@ -7,7 +7,7 @@
 extern "C" {
 #endif
 
-extern uint32_t spherical_harmonics[1988];
+extern uint32_t spherical_harmonics[1964];
 
 
 #ifdef __cplusplus

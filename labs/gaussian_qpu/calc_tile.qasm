@@ -103,13 +103,12 @@ mov id, unif
 
     add pg_all_indices, loop_counter, elem_num
 
-    # pg indices
-    mov r2, 0
+    # pg indices (set before, add at end of loop)
+    mov r2, (1 << 20)
+
     # current bit
     mov r1, (1 << 20)
     :1
-        add r2, r2, r1
-
         # min with NUM_GAUSSIANS so TMU doesn't error
         # this is okay bc tiles_touched is size NUM_GAUSSIANS + 1
         min r3, r2, NUM_GAUSSIANS
@@ -125,17 +124,17 @@ mov id, unif
 
         # r1 >>= 1
         shr.setf r1, r1, 1
-        brr.anynz -, :1
-        nop
-        nop
-        nop
 
-    reg_to_vpm_vec16 r2, 2
-    vpm_to_mem_vec16 id, 2
+        brr.anynz -, :1
+        add r2, r2, r1
+        nop
+        nop
 
     # multiply indices by sizeof(float) to get byte offset
     shl pg_indices, r2, 2
 
+    reg_to_vpm_vec16 r2, 2
+    vpm_to_mem_vec16 id, 2
 .endm
 
 .macro calc_bbox
@@ -235,11 +234,8 @@ shl loop_counter, qpu_num, 4
 shl base_row, qpu_num, 2
 
 
-
 :loop
     calc_indices
-    nop
-    nop
 
     calc_bbox
 
