@@ -7,7 +7,7 @@
 extern "C" {
 #endif
 
-extern uint32_t calc_bbox[244];
+extern uint32_t calc_bbox[248];
 
 
 #ifdef __cplusplus

@@ -45,22 +45,6 @@ typedef struct {
 } GaussianSoA;
 
 typedef struct {
-    float pos_x[MAX_GAUSSIANS];
-    float pos_y[MAX_GAUSSIANS];
-    float pos_z[MAX_GAUSSIANS];
-    float scale_x[MAX_GAUSSIANS];
-    float scale_y[MAX_GAUSSIANS];
-    float scale_z[MAX_GAUSSIANS];
-    float rot_x[MAX_GAUSSIANS];
-    float rot_y[MAX_GAUSSIANS];
-    float rot_z[MAX_GAUSSIANS];
-    float rot_w[MAX_GAUSSIANS];
-    float sh_x[16][MAX_GAUSSIANS];
-    float sh_y[16][MAX_GAUSSIANS];
-    float sh_z[16][MAX_GAUSSIANS];
-} GaussianK;
-
-typedef struct {
     float* pos_x;
     float* pos_y;
     float* pos_z;
@@ -92,21 +76,6 @@ typedef struct {
     float radius[MAX_GAUSSIANS];
     uint32_t tile[MAX_GAUSSIANS];
 } ProjectedGaussianSoA;
-
-typedef struct {
-    float screen_x[MAX_GAUSSIANS];
-    float screen_y[MAX_GAUSSIANS];
-    float depth[MAX_GAUSSIANS];
-    float cov2d_inv_x[MAX_GAUSSIANS];
-    float cov2d_inv_y[MAX_GAUSSIANS];
-    float cov2d_inv_z[MAX_GAUSSIANS];
-    float color_r[MAX_GAUSSIANS];
-    float color_g[MAX_GAUSSIANS];
-    float color_b[MAX_GAUSSIANS];
-    float opacity[MAX_GAUSSIANS];
-    union { float radius; uint32_t id; } radius_id[MAX_GAUSSIANS];
-    uint32_t tile[MAX_GAUSSIANS];
-} ProjectedGaussianK;
 
 typedef struct {
     float* screen_x;

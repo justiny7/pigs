@@ -21,6 +21,9 @@ void init_gaussian_ptr(GaussianPtr *p, Arena* a, uint32_t size) {
     p->size = size;
 }
 void init_projected_gaussian_ptr(ProjectedGaussianPtr *p, Arena* a, uint32_t size) {
+    // check sizeof(float) = sizeof(uint32_t) for radius_id
+    assert(sizeof(float) == sizeof(uint32_t), "Size of float/uint32_t mismatched");
+
     // align to 16 floats bc size isn't necessarily divisible by 16
     uint32_t align = 16 * sizeof(float);
     p->screen_x = arena_alloc_align(a, size * sizeof(float), align);
@@ -35,12 +38,6 @@ void init_projected_gaussian_ptr(ProjectedGaussianPtr *p, Arena* a, uint32_t siz
     p->opacity = arena_alloc_align(a, size * sizeof(float), align);
     p->radius_id = arena_alloc_align(a, size * sizeof(float), align);
     p->tile = arena_alloc_align(a, size * sizeof(uint32_t), align);
-
-    typedef union {
-        float r;
-        uint32_t i;
-    } tt;
-    assert(sizeof(tt) == sizeof(float), "ajsdklf");
 
     p->size = size;
 }

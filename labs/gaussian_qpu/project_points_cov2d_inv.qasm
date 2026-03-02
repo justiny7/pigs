@@ -196,6 +196,15 @@ mov cov2d_inv_z, unif
     mov r2, tz_reg
     reg_to_vpm_vec16 r2, offset0
 
+    # set clipping plane flags for radius
+    mov r0, 0.1     # near plane
+    fmax r1, r0, r2
+    mov r0, 100.0   # far plane
+    fmin r1, r0, r1
+
+    # if r2 was between 0.1 and 100, then r1 == r2
+    fsub.setf -, r1, r2
+
     # get r2 reciprocal
     mov sfu_recip, r2
 
@@ -369,10 +378,11 @@ mov cov2d_inv_z, unif
     fmul r1, temp_a0, r3
     reg_to_vpm_vec16 r1, 2
 
-    # now we can finally get radius
+    # now we can finally get radius (use clipping planes)
     mov r1, 3.5
-    fmul r1, r1, r4
-    reg_to_vpm_vec16 r1, 3
+    mov r2, 0.0
+    fmul.ifz r2, r1, r4
+    reg_to_vpm_vec16 r2, 3
 .endm
 
 # loop counter (qpu_num * SIMD_WIDTH += stride until >= NUM_GAUSSIANS)

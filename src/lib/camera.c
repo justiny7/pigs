@@ -40,6 +40,7 @@ void project_point(Camera* c, Vec3 p, float* depth, float* u, float* v) {
     float ty = c->w2c.m[4] * p.x + c->w2c.m[5] * p.y + c->w2c.m[6] * p.z + c->w2c.m[7];
     float tz = c->w2c.m[8] * p.x + c->w2c.m[9] * p.y + c->w2c.m[10] * p.z + c->w2c.m[11];
     assert(tz != 0, "tz is zero");
+    // assert(tz >= 0, "tz is neg");
 
     *depth = tz;
     if (tz >= 0 && tz < 0.001) {

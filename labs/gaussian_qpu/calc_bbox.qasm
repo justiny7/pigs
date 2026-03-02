@@ -95,6 +95,9 @@ mov tiles_touched, unif
     vpm_to_reg_vec16 r1, 0
     vpm_to_reg_vec16 r2, 1
 
+    # mask off radius == 0
+    fsub.setf -, r1, 0.0
+
     fsub r0, r2, r1
     fmax r0, r0, 0
     ftoi r0, r0
@@ -104,7 +107,7 @@ mov tiles_touched, unif
 
     fadd r0, r2, r1
     ftoi r0, r0
-    mov r3, 15
+    mov r3, TILE_SIZE - 1
     add r0, r0, r3
     shr r0, r0, 4 # divide by TILE_SIZE
     min r3, r0, max_tile_width
@@ -134,7 +137,8 @@ mov tiles_touched, unif
     vpm_to_mem_vec16 tb, 2
     vpm_to_mem_vec16 bb, 3
 
-    mul24 r1, temp_a0, temp_b0
+    mov r1, 0
+    mul24.ifnz r1, temp_a0, temp_b0
     reg_to_vpm_vec16 r1, 0
     vpm_to_mem_vec16 tiles_touched, 0
 .endm

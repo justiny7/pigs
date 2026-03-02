@@ -20,7 +20,7 @@
 #define TILE_SIZE 16
 #define NUM_TILES (WIDTH * HEIGHT / (TILE_SIZE * TILE_SIZE))
 
-#define NUM_QPUS 1
+#define NUM_QPUS 12
 // #define NUM_QPUS 12
 #define SIMD_WIDTH 16
 
@@ -147,8 +147,10 @@ void sort_SoA(ProjectedGaussianSoA* pg_soa, int n) {
         copy_pg_SoA(pg_soa, &temp, i, i);
     }
 }
-void sort(ProjectedGaussianK* pg, uint32_t n, ProjectedGaussianK* orig, uint32_t* gaussians_touched) {
-    ProjectedGaussianK temp;
+void sort(ProjectedGaussianPtr* pg, uint32_t n, ProjectedGaussianPtr* orig, uint32_t* gaussians_touched) {
+    float* temp_depth = arena_alloc_align(&data_arena, n * sizeof(float), 16);
+    float* temp_tile = arena_alloc_align(&data_arena, n * sizeof(float), 16);
+    uint32_t* temp_radius = arena_alloc_align(&data_arena, n * sizeof(uint32_t), 16);
 
     for (int b = 0; b < 32; b += 8) {
         uint32_t cnt[1 << 8];
@@ -169,16 +171,16 @@ void sort(ProjectedGaussianK* pg, uint32_t n, ProjectedGaussianK* orig, uint32_t
         for (int i = n - 1; i >= 0; i--) {
             uint32_t d = *((uint32_t*) &pg->depth[i]);
             int j = (d >> b) & 0xFF;
-            temp.depth[cnt[j] - 1] = pg->depth[i];
-            temp.tile[cnt[j] - 1] = pg->tile[i];
-            temp.radius_id[cnt[j] - 1] = pg->radius_id[i];
+            temp_depth[cnt[j] - 1] = pg->depth[i];
+            temp_tile[cnt[j] - 1] = pg->tile[i];
+            temp_radius[cnt[j] - 1] = pg->radius_id[i].id;
 
             cnt[j]--;
         }
         for (int i = 0; i < n; i++) {
-            pg->depth[i] = temp.depth[i];
-            pg->tile[i] = temp.tile[i];
-            pg->radius_id[i] = temp.radius_id[i];
+            pg->depth[i] = temp_depth[i];
+            pg->tile[i] = temp_tile[i];
+            pg->radius_id[i].id = temp_radius[i];
         }
     }
 
@@ -193,17 +195,17 @@ void sort(ProjectedGaussianK* pg, uint32_t n, ProjectedGaussianK* orig, uint32_t
     }
     for (int i = n - 1; i >= 0; i--) {
         int j = pg->tile[i];
-        temp.depth[cnt[j] - 1] = pg->depth[i];
-        temp.tile[cnt[j] - 1] = pg->tile[i];
-        temp.radius_id[cnt[j] - 1] = pg->radius_id[i];
+        temp_depth[cnt[j] - 1] = pg->depth[i];
+        temp_tile[cnt[j] - 1] = pg->tile[i];
+        temp_radius[cnt[j] - 1] = pg->radius_id[i].id;
 
         cnt[j]--;
     }
 
     for (int i = 0; i < n; i++) {
-        pg->depth[i] = temp.depth[i];
-        pg->tile[i] = temp.tile[i];
-        pg->radius_id[i] = temp.radius_id[i];
+        pg->depth[i] = temp_depth[i];
+        pg->tile[i] = temp_tile[i];
+        pg->radius_id[i].id = temp_radius[i];
 
         uint32_t id = pg->radius_id[i].id;
         pg->screen_x[i] = orig->screen_x[id];
@@ -317,7 +319,7 @@ void fill_all_gaussians_SoA(ProjectedGaussianSoA* pg, int n,
     }
 }
 
-void precompute_gaussians_qpu(Camera* c, GaussianK* g, ProjectedGaussianK* pg, uint32_t num_gaussians) {
+void precompute_gaussians_qpu(Camera* c, GaussianPtr* g, ProjectedGaussianPtr* pg, uint32_t num_gaussians) {
     //////// PROJECT POINTS + COV2D INV
 
     Kernel project_points_k;
@@ -326,21 +328,6 @@ void precompute_gaussians_qpu(Camera* c, GaussianK* g, ProjectedGaussianK* pg, u
     kernel_init(&project_points_k,
             NUM_QPUS, project_points_num_unifs,
             project_points_cov2d_inv, sizeof(project_points_cov2d_inv));
-
-    float* cov3d[9];
-    for (uint32_t i = 0; i < 9; i++) {
-        cov3d[i] = arena_alloc_align(&data_arena, num_gaussians * sizeof(float), 16);
-    }
-
-    for (uint32_t i = 0; i < num_gaussians; i++) {
-        Vec3 g_scale = { { g->scale_x[i], g->scale_y[i], g->scale_z[i] } };
-        Vec4 g_rot = { { g->rot_x[i], g->rot_y[i], g->rot_z[i], g->rot_w[i] } };
-        Mat3 cov3d_m = compute_cov3d(g_scale, g_rot);
-
-        for (uint32_t j = 0; j < 9; j++) {
-            cov3d[j][i] = cov3d_m.m[j];
-        }
-    }
 
     for (uint32_t q = 0; q < NUM_QPUS; q++) {
         kernel_load_unif(&project_points_k, q, NUM_QPUS * SIMD_WIDTH);
@@ -363,12 +350,9 @@ void precompute_gaussians_qpu(Camera* c, GaussianK* g, ProjectedGaussianK* pg, u
         kernel_load_unif(&project_points_k, q, c->fy);
         kernel_load_unif(&project_points_k, q, c->cy);
 
-        kernel_load_unif(&project_points_k, q, TO_BUS(cov3d[0] + q * SIMD_WIDTH));
-        kernel_load_unif(&project_points_k, q, TO_BUS(cov3d[1] + q * SIMD_WIDTH));
-        kernel_load_unif(&project_points_k, q, TO_BUS(cov3d[2] + q * SIMD_WIDTH));
-        kernel_load_unif(&project_points_k, q, TO_BUS(cov3d[4] + q * SIMD_WIDTH));
-        kernel_load_unif(&project_points_k, q, TO_BUS(cov3d[5] + q * SIMD_WIDTH));
-        kernel_load_unif(&project_points_k, q, TO_BUS(cov3d[8] + q * SIMD_WIDTH));
+        for (int i = 0; i < 6; i++) {
+            kernel_load_unif(&project_points_k, q, TO_BUS(g->cov3d[i] + q * SIMD_WIDTH));
+        }
 
         kernel_load_unif(&project_points_k, q, TO_BUS(pg->cov2d_inv_x + q * SIMD_WIDTH));
         kernel_load_unif(&project_points_k, q, TO_BUS(pg->cov2d_inv_y + q * SIMD_WIDTH));
@@ -391,16 +375,17 @@ void precompute_gaussians_qpu(Camera* c, GaussianK* g, ProjectedGaussianK* pg, u
     kernel_init(&sh_k, NUM_QPUS, sh_num_unifs,
             spherical_harmonics, sizeof(spherical_harmonics));
 
-    uint32_t sh[3] = {
-        (uint32_t) (&g->sh_x),
-        (uint32_t) (&g->sh_y),
-        (uint32_t) (&g->sh_z)
+    float** sh[3] = {
+        g->sh_x,
+        g->sh_y,
+        g->sh_z
     };
     float* colors[3] = {
-        (float*) (&pg->color_r),
-        (float*) (&pg->color_g),
-        (float*) (&pg->color_b)
+        pg->color_r,
+        pg->color_g,
+        pg->color_b
     };
+
     for (uint32_t q = 0; q < NUM_QPUS; q++) {
         kernel_load_unif(&sh_k, q, NUM_QPUS * SIMD_WIDTH);
         kernel_load_unif(&sh_k, q, num_gaussians);
@@ -417,10 +402,7 @@ void precompute_gaussians_qpu(Camera* c, GaussianK* g, ProjectedGaussianK* pg, u
         for (uint32_t c = 0; c < 3; c++) {
             kernel_load_unif(&sh_k, q, TO_BUS(colors[c] + q * SIMD_WIDTH));
             for (uint32_t i = 0; i < 16; i++) {
-                kernel_load_unif(&sh_k, q,
-                    TO_BUS(sh[c] +
-                        i * (num_gaussians * sizeof(float)) + // &sh[c][i]
-                        (q * SIMD_WIDTH * sizeof(float)))); // &sh[c][i][q]
+                kernel_load_unif(&sh_k, q, TO_BUS(sh[c][i] + q * SIMD_WIDTH));
             }
         }
     }
@@ -434,9 +416,9 @@ void precompute_gaussians_qpu(Camera* c, GaussianK* g, ProjectedGaussianK* pg, u
 }
 
 uint32_t lll[20000], rrr[20000], bbb[20000], ttt[20000];
-void count_intersections(ProjectedGaussianK* pg, int n,
-        uint32_t* tiles_touched, uint32_t* gaussians_touched,
-        ProjectedGaussianK* pg_all) {
+void count_intersections(ProjectedGaussianPtr* pg, int n,
+        uint32_t* tiles_touched,
+        ProjectedGaussianPtr* pg_all) {
     uint32_t t;
 
     /////////// CALCULATE BBOX
@@ -487,6 +469,7 @@ void count_intersections(ProjectedGaussianK* pg, int n,
     ///////// DUPLICATE GAUSSIANS + CALC TILE IDS
 
     uint32_t num_intersections = tiles_touched[n];
+    init_projected_gaussian_ptr(pg_all, &data_arena, num_intersections);
 
     Kernel tile_k;
     const int tile_num_unifs = 14;
@@ -528,36 +511,41 @@ void count_intersections(ProjectedGaussianK* pg, int n,
         DEBUG_D(tiles_touched[i + 1] - tiles_touched[i]);
         if (i > 0) {
             DEBUG_D(pg_all->tile[tiles_touched[i] - 1]);
-            DEBUG_D(pg_all->radius[tiles_touched[i] - 1]);
+            DEBUG_D(pg_all->radius_id[tiles_touched[i] - 1].id);
         }
         DEBUG_D(pg_all->tile[tiles_touched[i]]);
-        DEBUG_D(pg_all->radius[tiles_touched[i]]);
+        DEBUG_D(pg_all->radius_id[tiles_touched[i]].id);
         DEBUG_D(pg_all->tile[tiles_touched[i] + 1]);
-        DEBUG_D(pg_all->radius[tiles_touched[i] + 1]);
+        DEBUG_D(pg_all->radius_id[tiles_touched[i] + 1].id);
     }
     */
     /*
-    int pp = 67;
-    DEBUG_D(lb[pp]);
-    DEBUG_D(rb[pp]);
-    DEBUG_D(tb[pp]);
-    DEBUG_D(bb[pp]);
-    DEBUG_F(pg->depth[pp]);
-    for (int i = lb[pp]; i <= rb[pp]; i++) {
-        for (int j = tb[pp]; j <= bb[pp]; j++) {
-            DEBUG_D(i * (HEIGHT / TILE_SIZE) + j);
+    for (int pp = 0; pp < 1; pp++) {
+        DEBUG_D(pp);
+        DEBUG_D(lb[pp]);
+        DEBUG_D(rb[pp]);
+        DEBUG_D(tb[pp]);
+        DEBUG_D(bb[pp]);
+        DEBUG_F(pg->depth[pp]);
+        for (int i = lb[pp]; i <= rb[pp]; i++) {
+            for (int j = tb[pp]; j <= bb[pp]; j++) {
+                DEBUG_D(i * (HEIGHT / TILE_SIZE) + j);
+            }
+        }
+        for (int i = tiles_touched[pp]; i < tiles_touched[pp + 1]; i++) {
+            DEBUG_D(pg_all->tile[i]);
+            DEBUG_D(pg_all->radius_id[i].id);
+            DEBUG_F(pg_all->depth[i]);
         }
     }
-    for (int i = tiles_touched[pp]; i < tiles_touched[pp + 1]; i++) {
-        DEBUG_D(pg_all->tile[i]);
-        DEBUG_D(pg_all->radius_id[i].id);
-        DEBUG_F(pg_all->depth[i]);
-    }
+
+    rpi_reset();
     */
 }
 
 void main() {
-    const int num_gaussians = NUM_QPUS * SIMD_WIDTH * 1;
+    const int num_gaussians = NUM_QPUS * SIMD_WIDTH * 20;
+    // const int num_gaussians = NUM_QPUS * SIMD_WIDTH * 1;
     const int MiB = 1024 * 1024;
     arena_init(&data_arena, MiB * 40);
 
@@ -570,8 +558,13 @@ void main() {
     Camera* c = arena_alloc_align(&data_arena, sizeof(Camera), 16);
     init_camera(c, cam_pos, cam_target, cam_up, WIDTH, HEIGHT);
 
-    GaussianK* g = arena_alloc_align(&data_arena, sizeof(GaussianK), 16);
-    ProjectedGaussianK* pg = arena_alloc_align(&data_arena, sizeof(ProjectedGaussianK), 16);
+    GaussianPtr g;
+    init_gaussian_ptr(&g, &data_arena, num_gaussians);
+
+    ProjectedGaussianPtr pg;
+    init_projected_gaussian_ptr(&pg, &data_arena, num_gaussians);
+    // GaussianK* g = arena_alloc_align(&data_arena, sizeof(GaussianK), 16);
+    // ProjectedGaussianK* pg = arena_alloc_align(&data_arena, sizeof(ProjectedGaussianK), 16);
 
     GaussianSoA g_soa;
     ProjectedGaussianSoA pg_soa;
@@ -583,34 +576,32 @@ void main() {
             rand_float(-2.0f, 2.0f)
         } };
 
-        g->pos_x[i] = g_soa.pos[i].x;
-        g->pos_y[i] = g_soa.pos[i].y;
-        g->pos_z[i] = g_soa.pos[i].z;
+        g.pos_x[i] = g_soa.pos[i].x;
+        g.pos_y[i] = g_soa.pos[i].y;
+        g.pos_z[i] = g_soa.pos[i].z;
         
         float scale = rand_float(-2.0f, -0.5f);
         g_soa.scale[i] = (Vec3) { { scale, scale, scale } };
-
-        g->scale_x[i] = g_soa.scale[i].x;
-        g->scale_y[i] = g_soa.scale[i].y;
-        g->scale_z[i] = g_soa.scale[i].z;
-        
         g_soa.rot[i] = (Vec4) { { 0.0f, 0.0f, 0.0f, 1.0f } };
 
-        g->rot_x[i] = g_soa.rot[i].x;
-        g->rot_y[i] = g_soa.rot[i].y;
-        g->rot_z[i] = g_soa.rot[i].z;
-        g->rot_w[i] = g_soa.rot[i].w;
+        Mat3 cov3d_m = compute_cov3d(g_soa.scale[i], g_soa.rot[i]);
+
+        g.cov3d[0][i] = cov3d_m.m[0];
+        g.cov3d[1][i] = cov3d_m.m[1];
+        g.cov3d[2][i] = cov3d_m.m[2];
+        g.cov3d[3][i] = cov3d_m.m[4];
+        g.cov3d[4][i] = cov3d_m.m[5];
+        g.cov3d[5][i] = cov3d_m.m[8];
 
         pg_soa.opacity[i] = rand_float(0.5f, 1.0f); // load opacity directly to projected Gaussian
-
-        pg->opacity[i] = pg_soa.opacity[i];
+        pg.opacity[i] = pg_soa.opacity[i];
         
         for (int j = 0; j < 16; j++) {
             g_soa.sh[i][j] = (Vec3) { { 0.0f, 0.0f, 0.0f } };
 
-            g->sh_x[j][i] = g_soa.sh[i][j].x;
-            g->sh_y[j][i] = g_soa.sh[i][j].y;
-            g->sh_z[j][i] = g_soa.sh[i][j].z;
+            g.sh_x[j][i] = g_soa.sh[i][j].x;
+            g.sh_y[j][i] = g_soa.sh[i][j].y;
+            g.sh_z[j][i] = g_soa.sh[i][j].z;
         }
         
         float r = rand_float(0.2f, 1.0f);
@@ -622,9 +613,9 @@ void main() {
             (b - 0.5f) / SH_C0
         } };
 
-        g->sh_x[0][i] = g_soa.sh[i][0].x;
-        g->sh_y[0][i] = g_soa.sh[i][0].y;
-        g->sh_z[0][i] = g_soa.sh[i][0].z;
+        g.sh_x[0][i] = g_soa.sh[i][0].x;
+        g.sh_y[0][i] = g_soa.sh[i][0].y;
+        g.sh_z[0][i] = g_soa.sh[i][0].z;
     }
 
     DEBUG_D(num_gaussians);
@@ -637,7 +628,7 @@ void main() {
     DEBUG_D(cpu_t);
 
     t = sys_timer_get_usec();
-    precompute_gaussians_qpu(c, g, pg, num_gaussians);
+    precompute_gaussians_qpu(c, &g, &pg, num_gaussians);
     uint32_t qpu_t = sys_timer_get_usec() - t;
     DEBUG_D(qpu_t);
 
@@ -657,9 +648,36 @@ void main() {
     memset(tiles_touched, 0, (num_gaussians + 1) * sizeof(uint32_t));
     memset(gaussians_touched, 0, (NUM_TILES + 1) * sizeof(uint32_t));
 
-    ProjectedGaussianK* pg_all = arena_alloc_align(&data_arena, sizeof(ProjectedGaussianK), 16);
-    count_intersections(pg, num_gaussians,
-            tiles_touched, gaussians_touched, pg_all);
+#ifdef VERBOSE
+    for (uint32_t i = 0; i < 16; i++) {
+        uart_putd(i);
+        uart_puts("\n");
+        DEBUG_F(pg_soa.screen_x[i]);
+        DEBUG_F(pg_soa.screen_y[i]);
+        DEBUG_F(pg_soa.depth[i]);
+        DEBUG_F(pg_soa.cov2d_inv[i].x);
+        DEBUG_F(pg_soa.cov2d_inv[i].y);
+        DEBUG_F(pg_soa.cov2d_inv[i].z);
+        DEBUG_F(pg_soa.radius[i]);
+
+        uart_puts("--\n");
+
+        DEBUG_F(pg.screen_x[i]);
+        DEBUG_F(pg.screen_y[i]);
+        DEBUG_F(pg.depth[i]);
+        DEBUG_F(pg.cov2d_inv_x[i]);
+        DEBUG_F(pg.cov2d_inv_y[i]);
+        DEBUG_F(pg.cov2d_inv_z[i]);
+        DEBUG_F(pg.radius_id[i].radius);
+
+        uart_puts("------\n");
+    }
+#endif
+
+    // ProjectedGaussianK* pg_all = arena_alloc_align(&data_arena, sizeof(ProjectedGaussianK), 16);
+    ProjectedGaussianPtr pg_all;
+    count_intersections(&pg, num_gaussians,
+            tiles_touched, &pg_all);
 
     uint32_t total_intersections = tiles_touched_cpu[num_gaussians];
     DEBUG_D(total_intersections);
@@ -668,7 +686,7 @@ void main() {
 
     DEBUG_D(tiles_touched[num_gaussians]);
 
-    /*
+    // /*
     for (int i = 0; i < num_gaussians; i++) {
         if (tiles_touched_cpu[i] != tiles_touched[i]) {
             DEBUG_DM(i, "iteration");
@@ -686,7 +704,7 @@ void main() {
             rpi_reset();
         }
     }
-    */
+    // */
 
     assert(total_intersections == tiles_touched[num_gaussians], "cpu/qpu tile count mismatch");
 
@@ -704,33 +722,38 @@ void main() {
     DEBUG_D(cpu_sort_t);
 
     t = sys_timer_get_usec();
-    sort(pg_all, total_intersections, pg, gaussians_touched);
+    sort(&pg_all, total_intersections, &pg, gaussians_touched);
     uint32_t qpu_sort_t = sys_timer_get_usec() - t;
     DEBUG_D(qpu_sort_t);
 
-#ifdef VERBOSE
-    for (uint32_t i = 0; i < 16; i++) {
-        uart_putd(i);
-        uart_puts("\n");
-        DEBUG_F(pg_soa.screen_x[i]);
-        DEBUG_F(pg_soa.screen_y[i]);
-        DEBUG_F(pg_soa.depth[i]);
-        DEBUG_F(pg_soa.cov2d_inv[i].x);
-        DEBUG_F(pg_soa.cov2d_inv[i].y);
-        DEBUG_F(pg_soa.cov2d_inv[i].z);
-
-        uart_puts("--\n");
-
-        DEBUG_F(pg->screen_x[i]);
-        DEBUG_F(pg->screen_y[i]);
-        DEBUG_F(pg->depth[i]);
-        DEBUG_F(pg->cov2d_inv_x[i]);
-        DEBUG_F(pg->cov2d_inv_y[i]);
-        DEBUG_F(pg->cov2d_inv_z[i]);
-
-        uart_puts("------\n");
+    /*
+    for (int i = 0; i < NUM_TILES; i++) {
+        if (gaussians_touched[i] != gaussians_touched_cpu[i]) {
+            DEBUG_DM(i, "iter");
+            DEBUG_D(gaussians_touched[i]);
+            DEBUG_D(gaussians_touched_cpu[i]);
+        }
     }
-#endif
+    */
+    for (int i = 0; i < total_intersections; i++) {
+        if (pg_all.tile[i] != pg_soa_all.tile[i]) {
+            DEBUG_DM(i, "iter");
+            DEBUG_D(pg_all.tile[i]);
+            DEBUG_D(pg_soa_all.tile[i]);
+
+            uint32_t id = pg_all.radius_id[i].id;
+            DEBUG_D(ll[id - 1]);
+            DEBUG_D(lll[id - 1]);
+            DEBUG_D(rr[id - 1]);
+            DEBUG_D(rrr[id - 1]);
+            DEBUG_D(bb[id - 1]);
+            DEBUG_D(bbb[id - 1]);
+            DEBUG_D(tt[id - 1]);
+            DEBUG_D(ttt[id - 1]);
+
+            rpi_reset();
+        }
+    }
 
     uint32_t *fb;
     uint32_t size, pitch;
@@ -813,15 +836,15 @@ void main() {
 
             uint32_t tile_idx = (x / TILE_SIZE) * (HEIGHT / TILE_SIZE) + (y / TILE_SIZE);
             for (uint32_t i = gaussians_touched[tile_idx]; i < gaussians_touched[tile_idx + 1]; i++) {
-                if (pg_all->depth[i] <= 0.0f) continue;
+                if (pg_all.depth[i] <= 0.0f) continue;
 
-                Vec3 cov2d_inv = { { pg_all->cov2d_inv_x[i], pg_all->cov2d_inv_y[i], pg_all->cov2d_inv_z[i] } };
-                float alpha = pg_all->opacity[i] * eval_gaussian_2d(px, py, pg_all->screen_x[i], pg_all->screen_y[i], cov2d_inv);
+                Vec3 cov2d_inv = { { pg_all.cov2d_inv_x[i], pg_all.cov2d_inv_y[i], pg_all.cov2d_inv_z[i] } };
+                float alpha = pg_all.opacity[i] * eval_gaussian_2d(px, py, pg_all.screen_x[i], pg_all.screen_y[i], cov2d_inv);
                 if (alpha < 0.001f) continue;
 
-                out_r = alpha * pg_all->color_r[i] + (1.0f - alpha) * out_r;
-                out_g = alpha * pg_all->color_g[i] + (1.0f - alpha) * out_g;
-                out_b = alpha * pg_all->color_b[i] + (1.0f - alpha) * out_b;
+                out_r = alpha * pg_all.color_r[i] + (1.0f - alpha) * out_r;
+                out_g = alpha * pg_all.color_g[i] + (1.0f - alpha) * out_g;
+                out_b = alpha * pg_all.color_b[i] + (1.0f - alpha) * out_b;
             }
 
             pixels[y * WIDTH + x] = make_color(clamp_color(out_r), clamp_color(out_g), clamp_color(out_b));

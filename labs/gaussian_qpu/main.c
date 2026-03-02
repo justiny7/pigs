@@ -230,6 +230,10 @@ void sort(ProjectedGaussianPtr* pg, uint32_t n, ProjectedGaussianPtr* orig, uint
 void precompute_gaussians_SoA(Camera* c, GaussianSoA* g, ProjectedGaussianSoA* pg, uint32_t num_gaussians) {
     for (uint32_t i = 0; i < num_gaussians; i++) {
         project_point(c, g->pos[i], &pg->depth[i], &pg->screen_x[i], &pg->screen_y[i]);
+        if (pg->depth[i] < CAMERA_ZNEAR || pg->depth[i] > CAMERA_ZFAR) {
+            pg->radius[i] = 0.f;
+            continue;
+        }
 
         Mat3 cov3d = compute_cov3d(g->scale[i], g->rot[i]);
         Vec3 cov2d = project_cov2d(g->pos[i], cov3d, c->w2c, c->fx, c->fy);
@@ -253,11 +257,15 @@ uint32_t ll[20000], rr[20000], bb[20000], tt[20000];
 void count_intersections_SoA(ProjectedGaussianSoA* pg, int n,
         uint32_t* tiles_touched, uint32_t* gaussians_touched) {
     for (int i = 0; i < n; i++) {
+        if (pg->radius[i] == 0.0f) {
+            tiles_touched[i + 1] += tiles_touched[i];
+            pg->tile[i] = 0;
+            continue;
+        }
+
         float rad = pg->radius[i];
-        // int32_t l = max(0, ((int32_t) (pg->screen_x[i] - rad) / TILE_SIZE));
         int32_t l = ((int32_t) (max(0.f, pg->screen_x[i] - rad))) / TILE_SIZE;
         int32_t r = min(WIDTH / TILE_SIZE - 1, ((((int32_t) (pg->screen_x[i] + rad)) + TILE_SIZE - 1) / TILE_SIZE));
-        // int32_t t = max(0, ((int32_t) (pg->screen_y[i] - rad) / TILE_SIZE));
         int32_t t = ((int32_t) (max(0.f, pg->screen_y[i] - rad))) / TILE_SIZE;
         int32_t b = min(HEIGHT / TILE_SIZE - 1, ((((int32_t) (pg->screen_y[i] + rad)) + TILE_SIZE - 1) / TILE_SIZE));
 
@@ -274,7 +282,7 @@ void count_intersections_SoA(ProjectedGaussianSoA* pg, int n,
         tiles_touched[i + 1] = (r - l + 1) * (b - t + 1);
         for (int j = l; j <= r; j++) {
             for (int k = t; k <= b; k++) {
-                int idx = j * (HEIGHT / TILE_SIZE) + k;
+                int idx = k * (WIDTH / TILE_SIZE) + j;
                 if (idx >= NUM_TILES) {
                     DEBUG_D(WIDTH / TILE_SIZE);
                     DEBUG_D(j);
@@ -283,7 +291,7 @@ void count_intersections_SoA(ProjectedGaussianSoA* pg, int n,
                     DEBUG_D(idx);
                     panic("noo");
                 }
-                gaussians_touched[j * (HEIGHT / TILE_SIZE) + k + 1]++;
+                gaussians_touched[k * (WIDTH / TILE_SIZE) + j + 1]++;
             }
         }
 
@@ -299,21 +307,23 @@ void count_intersections_SoA(ProjectedGaussianSoA* pg, int n,
 void fill_all_gaussians_SoA(ProjectedGaussianSoA* pg, int n,
         ProjectedGaussianSoA* all_gaussians, uint32_t* tiles_touched) {
     for (int i = 0; i < n; i++) {
+        if (pg->radius[i] == 0.0f) {
+            continue;
+        }
+
         float rad = pg->radius[i];
-        // int32_t l = max(0, ((int32_t) (pg->screen_x[i] - rad) / TILE_SIZE));
         int32_t l = ((int32_t) (max(0.f, pg->screen_x[i] - rad))) / TILE_SIZE;
         int32_t r = min(WIDTH / TILE_SIZE - 1, ((((int32_t) (pg->screen_x[i] + rad)) + TILE_SIZE - 1) / TILE_SIZE));
-        // int32_t t = max(0, ((int32_t) (pg->screen_y[i] - rad) / TILE_SIZE));
         int32_t t = ((int32_t) (max(0.f, pg->screen_y[i] - rad))) / TILE_SIZE;
         int32_t b = min(HEIGHT / TILE_SIZE - 1, ((((int32_t) (pg->screen_y[i] + rad)) + TILE_SIZE - 1) / TILE_SIZE));
 
         for (int j = l; j <= r; j++) {
             for (int k = t; k <= b; k++) {
-                int tile_idx = (j - l) * (b - t + 1) + (k - t);
+                int tile_idx = (k - t) * (r - l + 1) + (j - l);
 
                 int idx = tiles_touched[i] + tile_idx;
                 copy_pg_SoA(all_gaussians, pg, idx, i);
-                all_gaussians->tile[idx] = j * (HEIGHT / TILE_SIZE) + k;
+                all_gaussians->tile[idx] = k * (WIDTH / TILE_SIZE) + j;
             }
         }
     }
@@ -544,14 +554,15 @@ void count_intersections(ProjectedGaussianPtr* pg, int n,
 }
 
 void main() {
-    const int num_gaussians = NUM_QPUS * SIMD_WIDTH * 20;
-    // const int num_gaussians = NUM_QPUS * SIMD_WIDTH * 1;
+    // const int num_gaussians = NUM_QPUS * SIMD_WIDTH * 20;
+    const int num_gaussians = NUM_QPUS * SIMD_WIDTH * 1;
     const int MiB = 1024 * 1024;
-    arena_init(&data_arena, MiB * 40);
+    arena_init(&data_arena, MiB * 35);
 
     uint32_t t;
 
     Vec3 cam_pos = { { 0.0f, 0.0f, 5.0f } };
+    // Vec3 cam_pos = { { 0.0f, 0.0f, 100.f } };
     Vec3 cam_target = { { 0.0f, 0.0f, 0.0f } };
     Vec3 cam_up = { { 0.0f, 1.0f, 0.0f } };
 
@@ -563,8 +574,6 @@ void main() {
 
     ProjectedGaussianPtr pg;
     init_projected_gaussian_ptr(&pg, &data_arena, num_gaussians);
-    // GaussianK* g = arena_alloc_align(&data_arena, sizeof(GaussianK), 16);
-    // ProjectedGaussianK* pg = arena_alloc_align(&data_arena, sizeof(ProjectedGaussianK), 16);
 
     GaussianSoA g_soa;
     ProjectedGaussianSoA pg_soa;
@@ -674,13 +683,13 @@ void main() {
     }
 #endif
 
-    // ProjectedGaussianK* pg_all = arena_alloc_align(&data_arena, sizeof(ProjectedGaussianK), 16);
     ProjectedGaussianPtr pg_all;
     count_intersections(&pg, num_gaussians,
             tiles_touched, &pg_all);
 
     uint32_t total_intersections = tiles_touched_cpu[num_gaussians];
     DEBUG_D(total_intersections);
+    DEBUG_D(gaussians_touched_cpu[NUM_TILES]);
     assert(total_intersections == gaussians_touched_cpu[NUM_TILES], "tile count mismatch");
     assert(total_intersections < MAX_GAUSSIANS, "too many intersections");
 
@@ -735,6 +744,7 @@ void main() {
         }
     }
     */
+    /*
     for (int i = 0; i < total_intersections; i++) {
         if (pg_all.tile[i] != pg_soa_all.tile[i]) {
             DEBUG_DM(i, "iter");
@@ -754,6 +764,7 @@ void main() {
             rpi_reset();
         }
     }
+    */
 
     uint32_t *fb;
     uint32_t size, pitch;
@@ -794,9 +805,9 @@ void main() {
             float out_g = 20.0f / 255.0f;
             float out_b = 40.0f / 255.0f;
 
-            uint32_t tile_idx = (x / TILE_SIZE) * (HEIGHT / TILE_SIZE) + (y / TILE_SIZE);
+            uint32_t tile_idx = (y / TILE_SIZE) * (WIDTH / TILE_SIZE) + (x / TILE_SIZE);
             for (uint32_t i = gaussians_touched_cpu[tile_idx]; i < gaussians_touched_cpu[tile_idx + 1]; i++) {
-                if (pg_soa_all.depth[i] <= 0.0f) continue;
+                assert(pg_all.depth[i] >= 0.0f, "negative depth");
 
                 float alpha = pg_soa_all.opacity[i] * eval_gaussian_2d(px, py, pg_soa_all.screen_x[i], pg_soa_all.screen_y[i], pg_soa_all.cov2d_inv[i]);
                 if (alpha < 0.001f) continue;
@@ -834,9 +845,9 @@ void main() {
             float out_g = 20.0f / 255.0f;
             float out_b = 40.0f / 255.0f;
 
-            uint32_t tile_idx = (x / TILE_SIZE) * (HEIGHT / TILE_SIZE) + (y / TILE_SIZE);
+            uint32_t tile_idx = (y / TILE_SIZE) * (WIDTH / TILE_SIZE) + (x / TILE_SIZE);
             for (uint32_t i = gaussians_touched[tile_idx]; i < gaussians_touched[tile_idx + 1]; i++) {
-                if (pg_all.depth[i] <= 0.0f) continue;
+                assert(pg_all.depth[i] >= 0.0f, "negative depth");
 
                 Vec3 cov2d_inv = { { pg_all.cov2d_inv_x[i], pg_all.cov2d_inv_y[i], pg_all.cov2d_inv_z[i] } };
                 float alpha = pg_all.opacity[i] * eval_gaussian_2d(px, py, pg_all.screen_x[i], pg_all.screen_y[i], cov2d_inv);
