@@ -144,6 +144,9 @@ void uart_putx(uint32_t x) {
     }
     mem_barrier_dsb();
 }
+void uart_hex(uint32_t x) {
+    uart_putx(x);
+}
 void uart_putb(uint32_t x) {
     mem_barrier_dsb();
     _uart_putc('0');

@@ -63,6 +63,7 @@ void uart_puts(const char* s);
 void uart_putk(const char* s);
 void uart_putd(uint32_t x);
 void uart_putx(uint32_t x);
+void uart_hex(uint32_t x);  /* same as uart_putx, for compatibility */
 void uart_putb(uint32_t x);
 void uart_putf(float x);
 void uart_putf_precision(float x, uint32_t precision);

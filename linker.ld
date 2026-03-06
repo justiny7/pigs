@@ -37,5 +37,6 @@ SECTIONS
         *(COMMON)
         . = ALIGN(16);
         __bss_end__ = .;
+        _end = .;
     }
 }
