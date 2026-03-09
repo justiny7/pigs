@@ -42,6 +42,24 @@ void* memset(void* dst, int val, uint32_t n) {
     return dst;
 }
 
+void caches_enable() {
+    uint32_t r;
+    asm volatile ("MRC p15, 0, %0, c1, c0, 0" : "=r" (r));
+    r |= (1 << 12); // l1 instruction cache
+    r |= (1 << 11); // branch prediction
+    r |= (1 << 2); // data cache
+    asm volatile ("MCR p15, 0, %0, c1, c0, 0" :: "r" (r));
+}
+
+void caches_disable() {
+    uint32_t r;
+    asm volatile ("MRC p15, 0, %0, c1, c0, 0" : "=r" (r));
+    r &= ~(1 << 12); // l1 instruction cache
+    r &= ~(1 << 11); // branch prediction
+    r &= ~(1 << 2); // data cache
+    asm volatile ("MCR p15, 0, %0, c1, c0, 0" :: "r" (r));
+}
+
 int errno;
 int* __errno() {
     return &errno;

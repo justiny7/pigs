@@ -3,6 +3,7 @@
 
 #include "uart.h"
 
+#ifdef DEBUG
 #define DEBUG_D(var) \
     do { \
         uart_puts("[DEBUG] " #var ": "); \
@@ -47,5 +48,13 @@
         uart_putf((float) (var)); \
         uart_puts("\n"); \
     } while (0)
+#else
+#define DEBUG_D(var)
+#define DEBUG_X(var)
+#define DEBUG_F(var)
+#define DEBUG_DM(var)
+#define DEBUG_XM(var)
+#define DEBUG_FM(var)
+#endif
 
 #endif

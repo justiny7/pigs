@@ -17,9 +17,9 @@ void init_camera(Camera* c, Vec3 pos, Vec3 target, Vec3 up, uint32_t width, uint
 
     Vec3 f = vec3_sub(target, pos);
     f = vec3_sdiv(f, vec3_len(f));
-    Vec3 r = vec3_cross(f, up);
+    Vec3 r = vec3_cross(up, f);
     r = vec3_sdiv(r, vec3_len(r));
-    Vec3 u = vec3_cross(r, f);
+    Vec3 u = vec3_cross(f, r);
 
     Mat4 w2c;
     w2c.m[0] = r.x;  w2c.m[1] = r.y;  w2c.m[2] = r.z;

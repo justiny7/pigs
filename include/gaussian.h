@@ -45,7 +45,8 @@ typedef struct __attribute((packed, aligned(4))) {
     float pos_x;
     float pos_y;
     float pos_z;
-    float sh[48];
+    float f_dc[3];
+    float f_rest[45];
     float opacity;
     float scale_x;
     float scale_y;

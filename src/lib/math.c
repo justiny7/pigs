@@ -40,9 +40,9 @@ float sinf(float x) {
     while (x >  M_PI) x -= 2.0f * M_PI;
     while (x < -M_PI) x += 2.0f * M_PI;
 
-    // 5th order Taylor: x - x^3/3! + x^5/5!
+    // 7th order Taylor: x - x^3/3! + x^5/5! - x^7/7!
     float x2 = x * x;
-    return x * (1.0f - x2 * (0.16666667f - x2 * 0.00833333f));
+    return x * (1.0f - x2 * (0.16666667f - x2 * (0.00833333f - x2 * 0.0001984126f)));
 }
 
 float cosf(float x) {

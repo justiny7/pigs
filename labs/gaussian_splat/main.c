@@ -19,9 +19,6 @@
 #include "scan_rot.h"
 #include "scan_sum.h"
 
-#define SCALE 10.0
-#define LG_SCALE 2.30258509299
-
 #define WIDTH 1280
 #define HEIGHT 720
 // #define WIDTH 640
@@ -148,8 +145,8 @@ void sort(ProjectedGaussianPtr* pg, int n, ProjectedGaussianPtr* orig, uint32_t*
         for (int i = n - 1; i >= 0; i--) {
             uint32_t key = pg->depth_key[i].key;
             int j = key & 0xFFFF;
-            temp_key[cnt[j] - 1] = (key >>= 16);
-            temp_id[--cnt[j]] = pg->radius_id[i].id;
+            temp_key[--cnt[j]] = (key >>= 16);
+            temp_id[cnt[j]] = pg->radius_id[i].id;
             cnt2[key]++;
         }
     }
@@ -256,16 +253,8 @@ void precompute_gaussians_qpu(Camera* c, GaussianPtr* g, ProjectedGaussianPtr* p
 
     ////////// SPHERICAL HARMONICS
     kernel_reset_unifs(&sh_k);
-    float** sh[3] = {
-        g->sh_x,
-        g->sh_y,
-        g->sh_z
-    };
-    float* colors[3] = {
-        pg->color_r,
-        pg->color_g,
-        pg->color_b
-    };
+    float** sh[3] = { g->sh_x, g->sh_y, g->sh_z };
+    float* colors[3] = { pg->color_r, pg->color_g, pg->color_b };
 
     for (uint32_t q = 0; q < NUM_QPUS; q++) {
         kernel_load_unif(&sh_k, q, NUM_QPUS * SIMD_WIDTH);
@@ -416,7 +405,7 @@ void init_sd(char** data_ptr, uint32_t* filesize_ptr) {
     *filesize_ptr = file_size;
 }
 
-void read_gaussians(uint32_t* num_gaussians_ptr,
+void read_ply(uint32_t* num_gaussians_ptr,
         float* x_avg_ptr, float* y_avg_ptr, float* z_avg_ptr) {
 
     char* data;
@@ -472,30 +461,26 @@ void read_gaussians(uint32_t* num_gaussians_ptr,
         Gaussian gaus;
         memcpy(&gaus, data + st, sizeof(Gaussian));
 
-        g.pos_x[i] = gaus.pos_x * SCALE;
-        g.pos_y[i] = gaus.pos_y * SCALE;
-        g.pos_z[i] = gaus.pos_z * SCALE;
+        g.pos_x[i] = gaus.pos_x;
+        g.pos_y[i] = gaus.pos_y;
+        g.pos_z[i] = gaus.pos_z;
 
         x_avg += g.pos_x[i];
         y_avg += g.pos_y[i];
         z_avg += g.pos_z[i];
 
-        for (int j = 0; j < 16; j++) {
-            if (j < 1) {
-                g.sh_x[j][i] = gaus.sh[j * 3 + 0];
-                g.sh_y[j][i] = gaus.sh[j * 3 + 1];
-                g.sh_z[j][i] = gaus.sh[j * 3 + 2];
-            } else {
-                g.sh_x[j][i] = 0;
-                g.sh_y[j][i] = 0;
-                g.sh_z[j][i] = 0;
-            }
+        g.sh_x[0][i] = gaus.f_dc[0];
+        g.sh_y[0][i] = gaus.f_dc[1];
+        g.sh_z[0][i] = gaus.f_dc[2];
+        for (int j = 0; j < 15; j++) {
+            g.sh_x[j + 1][i] = gaus.f_rest[j];
+            g.sh_y[j + 1][i] = gaus.f_rest[j + 15];
+            g.sh_z[j + 1][i] = gaus.f_rest[j + 30];
         }
 
         pg.opacity[i] = 1.0 / (1.0 + expf(-gaus.opacity));
 
         Vec3 scale = { { gaus.scale_x, gaus.scale_y, gaus.scale_z } };
-        scale = vec3_sadd(scale, LG_SCALE);
         Vec4 rot = { { gaus.rot_x, gaus.rot_y, gaus.rot_z, gaus.rot_w } };
         assert((1.0 - vec4_len(rot)) < 0.001f, "rot not normalized");
 
@@ -516,46 +501,14 @@ void read_gaussians(uint32_t* num_gaussians_ptr,
         }
     }
 
-    x_avg /= num_gaussians;
-    y_avg /= num_gaussians;
-    z_avg /= num_gaussians;
-
     *num_gaussians_ptr = num_gaussians;
-    *x_avg_ptr = x_avg;
-    *y_avg_ptr = y_avg;
-    *z_avg_ptr = z_avg;
+    *x_avg_ptr = x_avg / num_gaussians;
+    *y_avg_ptr = y_avg / num_gaussians;
+    *z_avg_ptr = z_avg / num_gaussians;
 }
 
-void main() {
+void render_gaussians(Camera* c, uint32_t num_gaussians) {
     uint32_t t;
-    caches_enable();
-
-    const int MiB = 1024 * 1024;
-    arena_init(&data_arena, MiB * 230);
-
-    init_kernels();
-
-    uint32_t num_gaussians;
-    float x_avg, y_avg, z_avg;
-    read_gaussians(&num_gaussians, &x_avg, &y_avg, &z_avg);
-
-    // FLY
-    Vec3 cam_pos = { { x_avg - 0.1 * SCALE, y_avg, z_avg + 0.3 * SCALE } };
-    // Vec3 cam_pos = { { x_avg - 0.2 * SCALE, y_avg, z_avg + 0.5 * SCALE } };
-    // Vec3 cam_pos = { { x_avg - 0.5 * SCALE, y_avg, z_avg  } };
-
-    // CACTUS
-    // Vec3 cam_pos = { { 0.0f, -15.0f, 25.f } };
-
-    Vec3 cam_target = { { x_avg, y_avg, z_avg} };
-    Vec3 cam_up = { { 0.0f, 1.0f, 0.0f } };
-
-    Camera* c = arena_alloc_align(&data_arena, sizeof(Camera), 16);
-    init_camera(c, cam_pos, cam_target, cam_up, WIDTH, HEIGHT);
-
-    DEBUG_D(num_gaussians);
-
-    uart_puts("DONE LOADING GAUSSIANS\n");
 
     t = sys_timer_get_usec();
     precompute_gaussians_qpu(c, &g, &pg, num_gaussians);
@@ -636,6 +589,41 @@ void main() {
     DEBUG_D(render_t);
 
     uart_puts("DONE RENDERING\n");
+
+}
+
+void main() {
+    caches_enable();
+
+    const int MiB = 1024 * 1024;
+    arena_init(&data_arena, MiB * 230);
+
+    init_kernels();
+
+    uint32_t num_gaussians;
+    float x_avg, y_avg, z_avg;
+    read_ply(&num_gaussians, &x_avg, &y_avg, &z_avg);
+
+    // FLY
+    // Vec3 cam_pos = { { x_avg - 0.1, y_avg, z_avg + 0.3 } };
+    Vec3 cam_pos = { { x_avg - 0.25, y_avg - 0.1, z_avg - 0.25 } };
+    // Vec3 cam_pos = { { x_avg - 0.2, y_avg, z_avg + 0.5 } };
+    // Vec3 cam_pos = { { x_avg - 0.5, y_avg, z_avg  } };
+
+    // CACTUS
+    // Vec3 cam_pos = { { 0.0f, -1.5f, 2.5f } };
+
+    Vec3 cam_target = { { x_avg, y_avg, z_avg} };
+    Vec3 cam_up = { { 0.0f, 1.0f, 0.0f } };
+
+    Camera* c = arena_alloc_align(&data_arena, sizeof(Camera), 16);
+    init_camera(c, cam_pos, cam_target, cam_up, WIDTH, HEIGHT);
+
+    DEBUG_D(num_gaussians);
+
+    uart_puts("DONE LOADING GAUSSIANS\n");
+
+    render_gaussians(c, num_gaussians);
 
     free_kernels();
 

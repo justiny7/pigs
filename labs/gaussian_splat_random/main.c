@@ -28,7 +28,7 @@
 #define TILE_SIZE 16
 #define NUM_TILES (WIDTH * HEIGHT / (TILE_SIZE * TILE_SIZE))
 
-#define NUM_QPUS 12
+#define NUM_QPUS 1
 #define SIMD_WIDTH 16
 
 Arena data_arena;
@@ -345,8 +345,8 @@ void caches_disable(void) {
 void main() {
     caches_enable();
 
-    const int num_gaussians = NUM_QPUS * SIMD_WIDTH * 800;
-    // const int num_gaussians = NUM_QPUS * SIMD_WIDTH * 1;
+    // const int num_gaussians = NUM_QPUS * SIMD_WIDTH * 800;
+    const int num_gaussians = NUM_QPUS * SIMD_WIDTH * 1;
     const int MiB = 1024 * 1024;
     arena_init(&data_arena, MiB * 230);
 
@@ -371,9 +371,11 @@ void main() {
 
     uint32_t t;
 
-    Vec3 cam_pos = { { 0.0f, 0.0f, 5.0f } };
+    // Vec3 cam_pos = { { 0.0f, 0.0f, 5.0f } };
+    Vec3 cam_pos = { { 0.0f, 0.0f, -5.0f } };
     // Vec3 cam_pos = { { 0.0f, 0.0f, 100.f } };
-    Vec3 cam_target = { { 0.0f, 0.0f, 0.0f } };
+    // Vec3 cam_target = { { 0.0f, 0.0f, 0.0f } };
+    Vec3 cam_target = { { 0.0f, 0.0f, 1.0f } };
     Vec3 cam_up = { { 0.0f, 1.0f, 0.0f } };
 
     Camera* c = arena_alloc_align(&data_arena, sizeof(Camera), 16);
@@ -386,13 +388,26 @@ void main() {
     init_projected_gaussian_ptr(&pg, &data_arena, num_gaussians);
 
     for (int i = 0; i < num_gaussians; i++) {
-        g.pos_x[i] = rand_float(-2.0f, 2.0f);
-        g.pos_y[i] = rand_float(-1.5f, 1.5f);
-        g.pos_z[i] = rand_float(-2.0f, 2.0f);
+        // g.pos_x[i] = rand_float(-2.0f, 2.0f);
+        // g.pos_y[i] = rand_float(-1.5f, 1.5f);
+        // g.pos_z[i] = rand_float(-2.0f, 2.0f);
+        if (i % 3 == 0) {
+            g.pos_x[i] = 1.0;
+            g.pos_y[i] = 0.0;
+            g.pos_z[i] = 0.0;
+        } else if (i % 3 == 1) {
+            g.pos_x[i] = 0.0;
+            g.pos_y[i] = 1.0;
+            g.pos_z[i] = 0.0;
+        } else {
+            g.pos_x[i] = 0.0;
+            g.pos_y[i] = 0.0;
+            g.pos_z[i] = 1.0;
+        }
         
-        float scale_f = rand_float(-3.5f, -2.5f);
+        // float scale_f = rand_float(-3.5f, -2.5f);
         // float scale_f = rand_float(-5.5, -4.5);
-        // float scale_f = -2.5;
+        float scale_f = -2.5;
         Vec3 scale = { { scale_f, scale_f, scale_f } };
         Vec4 rot = { { 0.0f, 0.0f, 0.0f, 1.0f } };
 
@@ -413,12 +428,25 @@ void main() {
             g.sh_z[j][i] = 0.0f;
         }
         
-        float r = rand_float(0.2f, 1.0f);
-        float gr = rand_float(0.2f, 1.0f);
-        float b = rand_float(0.2f, 1.0f);
-        g.sh_x[0][i] = (r - 0.5f) / SH_C0;
-        g.sh_y[0][i] = (gr - 0.5f) / SH_C0;
-        g.sh_z[0][i] = (b - 0.5f) / SH_C0;
+        // float r = rand_float(0.2f, 1.0f);
+        // float gr = rand_float(0.2f, 1.0f);
+        // float b = rand_float(0.2f, 1.0f);
+        // g.sh_x[0][i] = (r - 0.5f) / SH_C0;
+        // g.sh_y[0][i] = (gr - 0.5f) / SH_C0;
+        // g.sh_z[0][i] = (b - 0.5f) / SH_C0;
+        if (i % 3 == 0) {
+            g.sh_x[0][i] = (1.0 - 0.5f) / SH_C0;
+            g.sh_y[0][i] = (0.1 - 0.5f) / SH_C0;
+            g.sh_z[0][i] = (0.1 - 0.5f) / SH_C0;
+        } else if (i % 3 == 1) {
+            g.sh_x[0][i] = (0.1 - 0.5f) / SH_C0;
+            g.sh_y[0][i] = (1.0 - 0.5f) / SH_C0;
+            g.sh_z[0][i] = (0.1 - 0.5f) / SH_C0;
+        } else {
+            g.sh_x[0][i] = (0.1 - 0.5f) / SH_C0;
+            g.sh_y[0][i] = (0.1 - 0.5f) / SH_C0;
+            g.sh_z[0][i] = (1.0 - 0.5f) / SH_C0;
+        }
     }
 
     DEBUG_D(num_gaussians);
