@@ -158,7 +158,7 @@ uint32_t mbox_release_memory(uint32_t handle) {
 
 // Combined framebuffer init - sets all properties in one mailbox call
 void mbox_framebuffer_init(uint32_t width, uint32_t height, uint32_t vwidth, uint32_t vheight,
-        uint32_t depth, uint32_t** fb_ptr, uint32_t* fb_size, uint32_t* pitch) {
+        uint32_t depth, uint32_t** fb_ptr) {
     assert(mbox_get_property_batch(32,
         MBOX_TAG_SET_PHYSICAL_WIDTH_HEIGHT, 8, 0, width, height,
         MBOX_TAG_SET_VIRTUAL_WIDTH_HEIGHT, 8, 0, vwidth, vheight,
@@ -169,9 +169,10 @@ void mbox_framebuffer_init(uint32_t width, uint32_t height, uint32_t vwidth, uin
         MBOX_TAG_GET_PITCH, 4, 0, 0
     ), "Init frame buffer failed");
 
+    assert(mbox_buf[29] == vwidth * vheight * sizeof(uint32_t), "Framebuffer init failed: size mismatch");
+    assert(mbox_buf[33] == width * 4, "Framebuffer init failed: pitch mismatch");
+
     *fb_ptr = (uint32_t*) mbox_buf[28];
-    *fb_size = mbox_buf[29];
-    *pitch = mbox_buf[33];
 }
 void mbox_allocate_framebuffer(uint32_t alignment, uint32_t** base_addr, uint32_t* buf_size) {
     assert(mbox_get_property_batch(5,

@@ -250,13 +250,11 @@ mov neg_half_M_LOG2E, -0.5 * M_LOG2E
         nop
 :2
     
-    # reset y
-    mov y, tile_y_16
-
+    # y is already reset from beginning of :1 (bc next 3 instructions are run)
     # write tile to memory
     shl r2, max_tile_width, 4
     .rep row, 16
-        # get width by max_tile_widht * TILE_SIZE
+        # get width by max_tile_width * TILE_SIZE
         # now r3 stores pixel indices
         mul24 r3, r2, y
         add r3, r3, x

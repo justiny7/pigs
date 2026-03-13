@@ -7,7 +7,7 @@
 extern "C" {
 #endif
 
-extern uint32_t render[1454];
+extern uint32_t render[1452];
 
 
 #ifdef __cplusplus
