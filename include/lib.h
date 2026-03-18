@@ -25,6 +25,7 @@ void* memset(void* dst, int val, uint32_t n);
 
 void heap_init(uint32_t num_bytes);
 void* malloc(uint32_t num_bytes);
+void* malloc_align(uint32_t num_bytes, uint32_t align);
 void free(uint32_t num_byte);
 void free_to(uint32_t pos);
 uint32_t heap_get_size();

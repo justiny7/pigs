@@ -34,7 +34,7 @@ static bpb_t* bpb;
 static uint32_t* fat;
 
 int fat_getpartition() {
-    mbr = malloc(SECTOR_SIZE);
+    mbr = malloc_align(SECTOR_SIZE, SECTOR_SIZE);
     bpb = (bpb_t*) mbr; // can overwrite since we only read mbr once
 
     // read the partitioning table
@@ -76,7 +76,7 @@ int fat_getpartition() {
         data_lba = fat_lba + bpb->nfats * bpb->nsec_per_fat;
 
         // read in FAT (assuming only 1)
-        fat = malloc(bpb->nsec_per_fat * bpb->nbytes_per_sec);
+        fat = malloc_align(bpb->nsec_per_fat * bpb->nbytes_per_sec, SECTOR_SIZE);
         sd_readblock(fat_lba, fat, bpb->nsec_per_fat);
 
 #ifdef VERBOSE
@@ -125,7 +125,7 @@ void cluster_chain_read(uint32_t start_cluster, uint8_t* data) {
 
 fatdir_t* fat_statroot() {
     uint32_t num_clusters = cluster_chain_len(bpb->root_cluster);
-    fatdir_t* dir = malloc(num_clusters * bpb->nsec_per_cluster * bpb->nbytes_per_sec);
+    fatdir_t* dir = malloc_align(num_clusters * bpb->nsec_per_cluster * bpb->nbytes_per_sec, SECTOR_SIZE);
     cluster_chain_read(bpb->root_cluster, (uint8_t*) dir);
     return dir;
 }
@@ -238,7 +238,7 @@ uint32_t fat_getcluster(char* fn, uint32_t* file_size) {
 
 void fat_readfile_cluster(uint32_t cluster, uint8_t** data) {
     uint32_t num_clusters = cluster_chain_len(cluster);
-    *data = malloc(num_clusters * bpb->nsec_per_cluster * bpb->nbytes_per_sec);
+    *data = malloc_align(num_clusters * bpb->nsec_per_cluster * bpb->nbytes_per_sec, SECTOR_SIZE);
     cluster_chain_read(cluster, *data);
 }
 

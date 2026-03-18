@@ -66,6 +66,9 @@ void heap_init(uint32_t num_bytes) {
 void* malloc(uint32_t num_bytes) {
     return arena_alloc(&heap_allocator, num_bytes);
 }
+void* malloc_align(uint32_t num_bytes, uint32_t align) {
+    return arena_alloc_align(&heap_allocator, num_bytes, align);
+}
 void free(uint32_t num_bytes) {
     arena_dealloc(&heap_allocator, num_bytes);
 }
