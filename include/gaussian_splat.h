@@ -27,10 +27,11 @@ typedef struct {
 } GaussianSplat;
 
 void gs_init(GaussianSplat* gs, Arena* data_arena, uint32_t* framebuffer, uint32_t num_qpus);
+void gs_reset_arenas(GaussianSplat* gs);
 void gs_free_kernels();
 
-void gs_read_ply(GaussianSplat* gs, const char* filename,
-        float* x_avg, float* y_avg, float* z_avg);
+void gs_read_ply(GaussianSplat* gs, uint32_t ply_cluster, uint32_t filesize,
+        Vec3* center, float* radius);
 void gs_render(GaussianSplat* gs);
 void gs_set_camera(GaussianSplat* gs, Camera* c);
 

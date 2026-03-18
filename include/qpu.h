@@ -8,7 +8,7 @@
 #define V3D_BASE 0x20C00000
 
 #define PAGE_SIZE 4096
-#define TO_CPU(ptr) ((uint32_t) (ptr) & ~GPU_L2_OFFSET)
+#define TO_CPU(ptr) ((uint32_t) (ptr) & 0x3FFFFFFF);
 #define TO_BUS(ptr) ((uint32_t) (ptr) | GPU_L2_OFFSET)
 
 enum {

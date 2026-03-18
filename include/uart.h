@@ -13,6 +13,8 @@
 #define UART_TX_CNTL_BIT 2 // (1 << 1)
 #define UART_RX_CNTL_BIT 1 // (1 << 0)
 
+#define UART_RX_INT_BIT 1 // (1 << 0)
+
 #define UART_TX_READY_BIT 32 // (1 << 5)
 #define UART_TX_EMPTY_BIT 64 // (1 << 6)
 #define UART_RX_READY_BIT 1 // (1 << 0)
@@ -50,6 +52,8 @@ void uart_tx_enable();
 void uart_disable();
 
 void uart_disable_interrupts();
+void uart_enable_rx_interrupts();
+bool uart_has_interrupt();
 
 bool _uart_can_getc();
 bool _uart_can_putc();

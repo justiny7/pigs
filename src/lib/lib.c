@@ -1,10 +1,14 @@
 #include "lib.h"
 #include "uart.h"
+#include "arena_allocator.h"
 
 #define PM_RSTC 0x2010001C
 #define PM_WDOG 0x20100024
 #define PM_PASSWORD 0x5A000000
 #define PM_RSTC_WRCFG_FULL_RESET 0x20
+
+static Arena heap_allocator;
+extern uint8_t __heap_start__[];
 
 void rpi_reboot() {
     uart_flush_tx();
@@ -52,6 +56,24 @@ void* memset(void* dst, int val, uint32_t n) {
     while (n--) *d++ = (uint8_t) val;
 
     return dst;
+}
+
+void heap_init(uint32_t num_bytes) {
+    if (!heap_allocator.buf) {
+        arena_init(&heap_allocator, (void*)(__heap_start__), num_bytes);
+    }
+}
+void* malloc(uint32_t num_bytes) {
+    return arena_alloc(&heap_allocator, num_bytes);
+}
+void free(uint32_t num_bytes) {
+    arena_dealloc(&heap_allocator, num_bytes);
+}
+void free_to(uint32_t pos) {
+    arena_dealloc_to(&heap_allocator, pos);
+}
+uint32_t heap_get_size() {
+    return heap_allocator.size;
 }
 
 void caches_enable() {

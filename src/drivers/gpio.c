@@ -1,8 +1,7 @@
 #include "lib.h"
 #include "gpio.h"
 #include "sys_timer.h"
-
-#include "uart.h"
+#include "interrupt.h"
 
 uint32_t _check_pin(Pin pin) {
     const uint32_t p_num = pin.p_num;
@@ -75,7 +74,7 @@ void gpio_set_pull(Pin pin, GpioPull pull) {
 
 bool gpio_has_interrupt() {
     mem_barrier_dsb();
-    bool res = GET32(INT_PENDING_2) & (1U << (GPIO_INT_0 - 32));
+    bool res = GET32(IRQ_PENDING_2) & (1U << (GPIO_INT_0 - 32));
     mem_barrier_dsb();
     return res;
 }
@@ -84,7 +83,7 @@ void gpio_enable_int(Pin pin) {
     const uint32_t p_num = _check_pin(pin);
 
     mem_barrier_dsb();
-    PUT32(INT_ENABLE_2, (1U << (GPIO_INT_0 + (p_num >= 32) - 32)));
+    PUT32(IRQ_ENABLE_2, (1U << (GPIO_INT_0 + (p_num >= 32) - 32)));
     mem_barrier_dsb();
 }
 void gpio_enable_int_rising_edge(Pin pin) {

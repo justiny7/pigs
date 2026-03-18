@@ -25,8 +25,6 @@ static Kernel scan_rot_k, scan_sum_k;
 // #define VERBOSE
 
 void gs_init(GaussianSplat* gs, Arena* data_arena, uint32_t* framebuffer, uint32_t num_qpus) {
-    caches_enable();
-
     kernel_init(&project_points_k, num_qpus, 35,
             project_points_cov2d_inv, sizeof(project_points_cov2d_inv));
     kernel_init(&sh_k, num_qpus, 60,
@@ -47,9 +45,12 @@ void gs_init(GaussianSplat* gs, Arena* data_arena, uint32_t* framebuffer, uint32
     gs->num_qpus = num_qpus;
     gs->framebuffer = framebuffer;
 
+    gs_reset_arenas(gs);
+}
+void gs_reset_arenas(GaussianSplat* gs) {
     gs->render_arena[0].capacity = 0;
     gs->render_arena[1].capacity = 0;
-    gs->active_arena = 0;
+    gs->active_arena = 1;
 }
 void gs_set_camera(GaussianSplat* gs, Camera* c) {
     assert((c->width & 0xF) == 0, "Width must be divisble by 16");
@@ -70,57 +71,11 @@ void gs_free_kernels() {
     kernel_free(&scan_sum_k);
 }
 
-void init_sd(const char* filename, char** data_ptr, uint32_t* filesize_ptr) {
-    if (sd_init() != SD_OK) {
-        uart_puts("ERROR: SD init failed\n");
-        rpi_reset();
-    }
-#ifdef VERBOSE
-    uart_puts("SD init OK\n");
-#endif
+void gs_read_ply(GaussianSplat* gs, uint32_t ply_cluster, uint32_t filesize,
+        Vec3* center, float* radius) {
 
-    if (!fat_getpartition()) {
-        uart_puts("ERROR: FAT partition not found\n");
-        rpi_reset();
-    }
-#ifdef VERBOSE
-    uart_puts("FAT partition OK\n");
-#endif
-
-    unsigned int file_size = 0;
-    unsigned int cluster = fat_getcluster(filename, &file_size);
-    if (cluster == 0) {
-        uart_puts("ERROR: File not found: ");
-        uart_puts(filename);
-        uart_puts("\n");
-        rpi_reset();
-    }
-
-    unsigned int bytes_read = 0;
-    char* data = fat_readfile(cluster, &bytes_read);
-    if (data == 0) {
-        uart_puts("ERROR: Failed to read file\n");
-        rpi_reset();
-    }
-
-#ifdef VERBOSE
-    uart_puts("File size: ");
-    uart_putd(file_size);
-    uart_puts(" bytes, read: ");
-    uart_putd(bytes_read);
-    uart_puts(" bytes\n");
-#endif
-
-    *data_ptr = data;
-    *filesize_ptr = file_size;
-}
-
-void gs_read_ply(GaussianSplat* gs, const char* filename,
-        float* x_avg, float* y_avg, float* z_avg) {
-
-    char* data;
-    uint32_t filesize;
-    init_sd(filename, &data, &filesize);
+    uint8_t* data;
+    fat_readfile_cluster(ply_cluster, &data);
 
     const char* vertex_count = "vertex ";
     const char* end_header = "end_header\n";
@@ -168,6 +123,8 @@ void gs_read_ply(GaussianSplat* gs, const char* filename,
     assert(st + num_gaussians * sizeof(Gaussian) == filesize, "ply file size mismatch");
 
     float x_sum = 0.0f, y_sum = 0.0f, z_sum = 0.0f;
+    float mn[] = { 1e9, 1e9, 1e9 };
+    float mx[] = { -1e9, -1e9, -1e9 };
     for (uint32_t i = 0; i < num_gaussians; i++) {
         Gaussian gaus;
         memcpy(&gaus, data + st, sizeof(Gaussian));
@@ -179,6 +136,12 @@ void gs_read_ply(GaussianSplat* gs, const char* filename,
         x_sum += gs->g.pos_x[i];
         y_sum += gs->g.pos_y[i];
         z_sum += gs->g.pos_z[i];
+        mn[0] = min(mn[0], gs->g.pos_x[i]);
+        mn[1] = min(mn[1], gs->g.pos_y[i]);
+        mn[2] = min(mn[2], gs->g.pos_z[i]);
+        mx[0] = max(mx[0], gs->g.pos_x[i]);
+        mx[1] = max(mx[1], gs->g.pos_y[i]);
+        mx[2] = max(mx[2], gs->g.pos_z[i]);
 
         gs->g.sh_x[0][i] = gaus.f_dc[0];
         gs->g.sh_y[0][i] = gaus.f_dc[1];
@@ -206,16 +169,19 @@ void gs_read_ply(GaussianSplat* gs, const char* filename,
 
         st += sizeof(Gaussian);
 
+#ifdef VERBOSE
         if ((i + 1) % 5000 == 0) {
             uart_puts("Loaded ");
             uart_putd(i + 1);
             uart_puts(" gaussians\n");
         }
+#endif
     }
 
-    *x_avg = x_sum / num_gaussians;
-    *y_avg = y_sum / num_gaussians;
-    *z_avg = z_sum / num_gaussians;
+    center->x = x_sum / num_gaussians;
+    center->y = y_sum / num_gaussians;
+    center->z = z_sum / num_gaussians;
+    *radius = 3.0f * max(max(mx[0] - mn[0], mx[1] - mn[1]), mx[2] - mn[2]);
 }
 
 void qpu_scan(GaussianSplat* gs, uint32_t* arr, uint32_t n) {

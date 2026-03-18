@@ -40,7 +40,7 @@ typedef struct {
 } Gaussian;
 */
 
-typedef struct __attribute((packed, aligned(4))) {
+typedef struct __attribute__((packed, aligned(4))) {
     float pos_x;
     float pos_y;
     float pos_z;

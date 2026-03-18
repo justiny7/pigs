@@ -23,6 +23,12 @@ void panic(const char* msg);
 void* memcpy(void* dst, const void* src, uint32_t n);
 void* memset(void* dst, int val, uint32_t n);
 
+void heap_init(uint32_t num_bytes);
+void* malloc(uint32_t num_bytes);
+void free(uint32_t num_byte);
+void free_to(uint32_t pos);
+uint32_t heap_get_size();
+
 void caches_enable();
 void caches_disable();
 

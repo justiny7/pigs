@@ -2,6 +2,7 @@
 #include "gpio.h"
 #include "uart.h"
 #include "mailbox_interface.h"
+#include "interrupt.h"
 
 void uart_init() {
     mem_barrier_dsb();
@@ -67,6 +68,16 @@ void uart_disable() {
 
 void uart_disable_interrupts() {
     PUT32(AUX_MU_IER_REG, 0);
+}
+void uart_enable_rx_interrupts() {
+    PUT32(IRQ_ENABLE_1, (1 << AUX_INT));
+    PUT32(AUX_MU_IER_REG, UART_RX_INT_BIT);
+}
+bool uart_has_interrupt() {
+    mem_barrier_dsb();
+    bool res = (GET32(IRQ_PENDING_1) >> AUX_INT) & 1;
+    mem_barrier_dsb();
+    return res;
 }
 
 // helpers w/ no barriers

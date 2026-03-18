@@ -2,211 +2,266 @@
  * Referenced https://github.com/bztsrc/raspi3-tutorial/tree/master/0D_readfile
  */
 
+#include "fat.h"
 #include "emmc.h"
 #include "uart.h"
+#include "lib.h"
+
+#include <stddef.h>
+
+#define DEBUG
+#include "debug.h"
+
+// #define VERBOSE
+
+extern uint8_t __heap_start__[];
 
 /* memcmp for freestanding build (-nostdlib); no libc */
-static int memcmp(const void *s1, const void *s2, int n)
-{
-    const unsigned char *a = s1, *b = s2;
+static int memcmp(const void *s1, const void *s2, int n) {
+    const uint8_t *a = s1, *b = s2;
     while (n-- > 0) {
         if (*a != *b) return *a - *b;
-        a++;
-        b++;
+        a++, b++;
     }
     return 0;
 }
 
-// get the end of bss segment from linker
-extern unsigned char __heap_start__[];
+static uint32_t partition_lba;
+static uint32_t fat_lba;
+static uint32_t data_lba;
+static uint8_t* mbr;
+static bpb_t* bpb;
+static uint32_t* fat;
 
-static unsigned int partitionlba = 0;
+int fat_getpartition() {
+    mbr = malloc(SECTOR_SIZE);
+    bpb = (bpb_t*) mbr; // can overwrite since we only read mbr once
 
-// the BIOS Parameter Block (in Volume Boot Record)
-typedef struct {
-    char            jmp[3];
-    char            oem[8];
-    unsigned char   bps0;
-    unsigned char   bps1;
-    unsigned char   spc;
-    unsigned short  rsc;
-    unsigned char   nf;
-    unsigned char   nr0;
-    unsigned char   nr1;
-    unsigned short  ts16;
-    unsigned char   media;
-    unsigned short  spf16;
-    unsigned short  spt;
-    unsigned short  nh;
-    unsigned int    hs;
-    unsigned int    ts32;
-    unsigned int    spf32;
-    unsigned int    flg;
-    unsigned int    rc;
-    char            vol[6];
-    char            fst[8];
-    char            dmy[20];
-    char            fst2[8];
-} __attribute__((packed)) bpb_t;
-
-// directory entry structure
-typedef struct {
-    char            name[8];
-    char            ext[3];
-    char            attr[9];
-    unsigned short  ch;
-    unsigned int    attr2;
-    unsigned short  cl;
-    unsigned int    size;
-} __attribute__((packed)) fatdir_t;
-
-/**
- * Get the starting LBA address of the first partition
- * so that we know where our FAT file system starts, and
- * read that volume's BIOS Parameter Block
- */
-int fat_getpartition(void)
-{
-    unsigned char *mbr=__heap_start__;
-    bpb_t *bpb=(bpb_t*)__heap_start__;
     // read the partitioning table
-    if(sd_readblock(0,__heap_start__,1)) {
+    if (sd_readblock(0, mbr, 1)) {
         // check magic
-        if(mbr[510]!=0x55 || mbr[511]!=0xAA) {
+        if (mbr[510] != 0x55 || mbr[511] != 0xAA) {
             uart_puts("ERROR: Bad magic in MBR\n");
             return 0;
         }
+
         // check partition type: 0x0B = FAT32 CHS, 0x0C = FAT32 LBA
-        if(mbr[0x1C2]!=0xB && mbr[0x1C2]!=0xC) {
+        if (mbr[0x1C2] != 0xB && mbr[0x1C2] != 0xC) {
             uart_puts("ERROR: Wrong partition type (need FAT32, got 0x");
             uart_hex(mbr[0x1C2]);
             uart_puts(")\n");
             return 0;
         }
+
         // should be this, but compiler generates bad code...
-        //partitionlba=*((unsigned int*)((unsigned long)&_end+0x1C6));
-        partitionlba=mbr[0x1C6] + (mbr[0x1C7]<<8) + (mbr[0x1C8]<<16) + (mbr[0x1C9]<<24);
+        partition_lba = mbr[0x1C6] +
+            (mbr[0x1C7] << 8)  +
+            (mbr[0x1C8] << 16) +
+            (mbr[0x1C9] << 24);
+
         // read the boot record
-        if(!sd_readblock(partitionlba,__heap_start__,1)) {
+        if (!sd_readblock(partition_lba, bpb, 1)) {
             uart_puts("ERROR: Unable to read boot record\n");
             return 0;
         }
+
         // check file system type. We don't use cluster numbers for that, but magic bytes
-        if( !(bpb->fst[0]=='F' && bpb->fst[1]=='A' && bpb->fst[2]=='T') &&
-            !(bpb->fst2[0]=='F' && bpb->fst2[1]=='A' && bpb->fst2[2]=='T')) {
+        if (!(bpb->fst[0] == 'F' && bpb->fst[1] == 'A' && bpb->fst[2] == 'T') &&
+                !(bpb->fst2[0] == 'F' && bpb->fst2[1] == 'A' && bpb->fst2[2] == 'T')) {
             uart_puts("ERROR: Unknown file system type\n");
             return 0;
         }
+
+        fat_lba = partition_lba + bpb->reserved_nsec;
+        data_lba = fat_lba + bpb->nfats * bpb->nsec_per_fat;
+
+        // read in FAT (assuming only 1)
+        fat = malloc(bpb->nsec_per_fat * bpb->nbytes_per_sec);
+        sd_readblock(fat_lba, fat, bpb->nsec_per_fat);
+
+#ifdef VERBOSE
+        uart_puts("FAT Bytes per Sector: ");
+        uart_hex(bpb->nbytes_per_sec);
+        uart_puts("\nFAT Sectors per Cluster: ");
+        uart_hex(bpb->nsec_per_cluster);
+        uart_puts("\nFAT Number of FAT: ");
+        uart_hex(bpb->nfats);
+        uart_puts("\nFAT Sectors per FAT: ");
+        uart_hex(bpb->nsec_per_fat);
+        uart_puts("\nFAT Reserved Sectors Count: ");
+        uart_hex(bpb->reserved_nsec);
+        uart_puts("\nFAT First data sector: ");
+        uart_hex(data_lba);
+        uart_puts("\n");
+#endif
+
         return 1;
     }
     return 0;
 }
 
-/**
- * Find a file in root directory entries
- * @param fn: 8.3 filename (11 chars, space-padded)
- * @param file_size: output parameter for file size (can be NULL)
- */
-unsigned int fat_getcluster(char *fn, unsigned int *file_size)
-{
-    bpb_t *bpb=(bpb_t*)__heap_start__;
-    fatdir_t *dir=(fatdir_t*)(__heap_start__+512);
-    unsigned int root_sec, s;
-    // find the root directory's LBA (FAT32)
-    root_sec=(bpb->spf32*bpb->nf)+bpb->rsc;
-    // FAT32: root dir starts at root cluster
-    root_sec+=(bpb->rc-2)*bpb->spc;
-    // FAT32: root dir is a cluster chain, read at least 1 cluster (spc sectors)
-    s = bpb->spc * 512;
-    // add partition LBA
-    root_sec+=partitionlba;
-    // load the root directory (read at least 16 sectors = 256 entries for FAT32)
-    unsigned int sectors_to_read = s/512;
-    if(sectors_to_read < 16) sectors_to_read = 16;
-    if(sd_readblock(root_sec,(unsigned char*)dir,sectors_to_read)) {
-        // iterate on each entry and check if it's the one we're looking for
-        for(;dir->name[0]!=0;dir++) {
-            // is it a valid entry?
-            if(dir->name[0]==0xE5 || dir->attr[0]==0xF) continue;
-            // // debug: print raw filename bytes
-            // uart_puts("DIR entry: ");
-            // for (int i = 0; i < 8; i++) uart_putc(dir->name[i]);
-            // uart_puts(" ");
-            // for (int i = 0; i < 3; i++) uart_putc(dir->ext[i]);
-            // uart_puts("\n");
-            // filename match?
-            if(!memcmp(dir->name,fn,8) && !memcmp(dir->ext,fn+8,3)) {
-                uart_puts("FAT File ");
-                uart_puts(fn);
-                uart_puts(" starts at cluster: ");
-                uart_hex(((unsigned int)dir->ch)<<16|dir->cl);
-                uart_puts(" size: ");
-                uart_hex(dir->size);
-                uart_puts("\n");
-                // return file size if requested
-                if (file_size) *file_size = dir->size;
-                // return starting cluster
-                return ((unsigned int)dir->ch)<<16|dir->cl;
-            }
-        }
-        uart_puts("ERROR: file not found\n");
-    } else {
-        uart_puts("ERROR: Unable to load root directory\n");
+uint32_t cluster_to_lba(uint32_t cluster) {
+    return data_lba + (cluster - 2) * bpb->nsec_per_cluster;
+}
+uint32_t cluster_chain_len(uint32_t start_cluster) {
+    uint32_t res = 1;
+    while (fat[start_cluster] < LAST_CLUSTER) {
+        res++;
+        start_cluster = fat[start_cluster];
     }
+    return res;
+}
+void cluster_chain_read(uint32_t start_cluster, uint8_t* data) {
+    uint32_t bytes_per_cluster = bpb->nsec_per_cluster * bpb->nbytes_per_sec;
+    uint32_t i = 0;
+    while (fat[start_cluster] < LAST_CLUSTER) {
+        sd_readblock(cluster_to_lba(start_cluster), &data[i], bpb->nsec_per_cluster);
+
+        start_cluster = fat[start_cluster];
+        i += bytes_per_cluster;
+    }
+    sd_readblock(cluster_to_lba(start_cluster), &data[i], bpb->nsec_per_cluster);
+}
+
+fatdir_t* fat_statroot() {
+    uint32_t num_clusters = cluster_chain_len(bpb->root_cluster);
+    fatdir_t* dir = malloc(num_clusters * bpb->nsec_per_cluster * bpb->nbytes_per_sec);
+    cluster_chain_read(bpb->root_cluster, (uint8_t*) dir);
+    return dir;
+}
+
+int fat_skip_dirent(fatdir_t* dir) {
+    uint8_t attr = dir->attr[0];
+    return (attr & FAT32_HIDDEN) ||
+        (attr & FAT32_SYS_FILE) ||
+        (attr & FAT32_VOLUME_LBL) ||
+        (dir->name[0] == 0xE5);
+}
+void fat_get_plys(fatdir_t** dirs, uint8_t** lfns, uint32_t* num_files) {
+    fatdir_t* dir = fat_statroot();
+    const char* ext = "PLY";
+
+    uint32_t dir_cnt = 0;
+    for (fatdir_t* d = dir; d->name[0]; d++) {
+        if (fat_skip_dirent(d)) {
+            continue;
+        }
+
+        if (!memcmp(d->ext, ext, 3)) {
+            dir_cnt++;
+        }
+    }
+
+    fatdir_t* res = malloc(dir_cnt * sizeof(fatdir_t));
+    uint8_t* lfn = malloc(dir_cnt * MAX_LFN_LEN);
+    memset(lfn, 0, dir_cnt * MAX_LFN_LEN);
+
+    uint8_t cksum;
+    for (int i = 0, l = 0; dir->name[0]; dir++) {
+        if ((dir->attr[0] & 0xF) == FAT32_LFN) {
+            fatdir_lfn_t* lfn_dir = (fatdir_lfn_t*) dir;
+            assert(lfn_dir->lfn == 0x0F, "LFN type mismatch");
+
+            cksum = lfn_dir->cksum;
+
+            uint32_t offset = ((lfn_dir->seqno & 0x1F) - 1) * 13;
+            for (int j = 0; j < 5; j++) {
+                lfn[i * MAX_LFN_LEN + offset + j] = lfn_dir->name0[j] & 0xFF;
+            }
+            for (int j = 0; j < 6; j++) {
+                lfn[i * MAX_LFN_LEN + offset + 5 + j] = lfn_dir->name1[j] & 0xFF;
+            }
+            for (int j = 0; j < 2; j++) {
+                lfn[i * MAX_LFN_LEN + offset + 11 + j] = lfn_dir->name2[j] & 0xFF;
+            }
+
+            l += 13;
+
+            continue;
+        }
+        if (fat_skip_dirent(dir)) {
+            while (l > 0) {
+                lfn[i * MAX_LFN_LEN + (--l)] = 0;
+            }
+            continue;
+        }
+
+        if (!memcmp(dir->ext, ext, 3)) {
+            // check cksum
+            if (l) {
+                uint8_t ck = 0;
+                for (int j = 0; j < 11; j++) {
+                    ck = ((ck & 1) ? 0x80 : 0) + (ck >> 1) + *(dir->name + j);
+                }
+                assert(ck == cksum, "LFN checksum mismatch");
+            }
+
+            memcpy(&res[i++], dir, sizeof(fatdir_t));
+            l = 0;
+        }
+    }
+
+    *num_files = dir_cnt;
+    *dirs = res;
+    *lfns = lfn;
+}
+uint32_t fat_getcluster(char* fn, uint32_t* file_size) {
+    fatdir_t* dir = fat_statroot();
+
+    for (; dir->name[0]; dir++) {
+        if (fat_skip_dirent(dir)) {
+            continue;
+        }
+
+        if (!memcmp(dir->name, fn, 8) && !memcmp(dir->ext, fn+8, 3)) {
+#ifdef VERBOSE
+            uart_puts("FAT File ");
+            uart_puts(fn);
+            uart_puts(" starts at cluster: ");
+            uart_putx(fatdir_get_cluster(dir));
+            uart_puts(" size: ");
+            uart_putx(dir->size);
+            uart_puts("\n");
+#endif
+
+            if (file_size) {
+                *file_size = dir->size;
+            }
+
+            return fatdir_get_cluster(dir);
+        }
+    }
+
+    uart_puts("ERROR: file not found\n");
     return 0;
 }
 
-/**
- * Read a file into memory
- * @param cluster: starting cluster of the file
- * @param bytes_read: output parameter for total bytes read (can be NULL)
- */
-char *fat_readfile(unsigned int cluster, unsigned int *bytes_read)
-{
-    // BIOS Parameter Block
-    bpb_t *bpb=(bpb_t*)__heap_start__;
-    // FAT32 table
-    unsigned int *fat32=(unsigned int*)(__heap_start__+bpb->rsc*512);
-    // Data pointers
-    unsigned int data_sec;
-    unsigned char *data, *ptr;
-    unsigned int total_bytes = 0;
-    // find the LBA of the first data sector (FAT32)
-    data_sec=(bpb->spf32*bpb->nf)+bpb->rsc;
-    // add partition LBA
-    data_sec+=partitionlba;
-    // dump important properties
-    uart_puts("FAT Bytes per Sector: ");
-    uart_hex(bpb->bps0 + (bpb->bps1 << 8));
-    uart_puts("\nFAT Sectors per Cluster: ");
-    uart_hex(bpb->spc);
-    uart_puts("\nFAT Number of FAT: ");
-    uart_hex(bpb->nf);
-    uart_puts("\nFAT Sectors per FAT: ");
-    uart_hex(bpb->spf32);
-    uart_puts("\nFAT Reserved Sectors Count: ");
-    uart_hex(bpb->rsc);
-    uart_puts("\nFAT First data sector: ");
-    uart_hex(data_sec);
-    uart_puts("\n");
-    // load FAT table
-    unsigned int fat_sectors = bpb->spf32 + bpb->rsc;
-    unsigned int s = sd_readblock(partitionlba+1,(unsigned char*)__heap_start__+512,fat_sectors);
-    // end of FAT in memory
-    data=ptr=__heap_start__+512+s;
-    // iterate on cluster chain
-    // (FAT32 is actually FAT28 - upper 4 bits must be masked)
-    while(cluster>1 && cluster<0x0FFFFFF8) {
-        // load all sectors in a cluster
-        sd_readblock((cluster-2)*bpb->spc+data_sec,ptr,bpb->spc);
-        // move pointer, sector per cluster * bytes per sector
-        unsigned int cluster_bytes = bpb->spc*(bpb->bps0 + (bpb->bps1 << 8));
-        ptr += cluster_bytes;
-        total_bytes += cluster_bytes;
-        // get the next cluster in chain (mask upper 4 bits)
-        cluster = fat32[cluster] & 0x0FFFFFFF;
-    }
-    if (bytes_read) *bytes_read = total_bytes;
-    return (char*)data;
+void fat_readfile_cluster(uint32_t cluster, uint8_t** data) {
+    uint32_t num_clusters = cluster_chain_len(cluster);
+    *data = malloc(num_clusters * bpb->nsec_per_cluster * bpb->nbytes_per_sec);
+    cluster_chain_read(cluster, *data);
 }
 
+
+void fat_init() {
+    assert(sd_init() == SD_OK, "SD init failed");
+
+#ifdef VERBOSE
+    uart_puts("SD init OK\n");
+#endif
+
+    assert(fat_getpartition(), "FAT partition not found");
+
+#ifdef VERBOSE
+    uart_puts("FAT partition OK\n");
+#endif
+}
+void fat_readfile(const char* fn, uint8_t** data, uint32_t* filesize) {
+    uint32_t cluster = fat_getcluster(fn, filesize);
+    assert(cluster, "File not found");
+    fat_readfile_cluster(cluster, data);
+}
+
+uint32_t fatdir_get_cluster(fatdir_t* dir) {
+    return ((uint32_t) dir->ch << 16) | dir->cl;
+}

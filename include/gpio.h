@@ -24,13 +24,6 @@ enum {
     GPPUDCLK_BASE = GPIO_BASE + 0x0098,
 };
 
-enum {
-    INT_PENDING_2 = 0x2000B208,
-    INT_ENABLE_2 = 0x2000B214,
-    GPIO_INT_0 = 49,
-    GPIO_INT_1 = 50,
-};
-
 typedef struct {
     uint32_t p_num;
 } Pin;
