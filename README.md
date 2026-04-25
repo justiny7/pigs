@@ -1,8 +1,8 @@
 # pigs: Pi Gaussian Splat Renderer
 
-<video width="640" height="360" controls>
-  <source src="./assets/demo.mp4" type="video/mp4">
-</video>
+
+https://github.com/user-attachments/assets/d81c6e70-77da-4a90-9f70-14543ebd557b
+
 
 ## Intro
 
