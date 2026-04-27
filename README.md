@@ -10,6 +10,7 @@ We built an (almost) real-time Gaussian splat renderer on the Raspberry Pi! It h
 - A menu screen listing all .ply files from the SD card
 - A renderer screen rendering a splat model selected from the menu
 - A toggleable instruction screen showing the commands
+
 In the renderer, the camera orbits the model in a spherical path by default, but you can toggle manual camera controls as well as zoom in and out.
 
 ### Gaussian splatting background
