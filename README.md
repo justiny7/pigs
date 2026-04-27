@@ -30,7 +30,7 @@ Our project consisted of these main components:
 We have seven QPU kernels that help preprocess and render the Gaussians. Not going into them in detail, but here are some cool tricks we used:
 - TMU for gather operations, since VPM can only access consecutive or strided memory
 - Parallel binary search within a QPU register (check `calc_tile.qasm`)
-- Iterate from MSB to LSB, add that bit, then mask + subtract from lanes where some condition isn’t met
+    - Iterate from MSB to LSB, add that bit, then mask + subtract from lanes where some condition isn’t met
 - Packing/unpacking to convert float32 to uint8 for pixel colors on QPU hardware (check render.qasm)
 - Making use of register rotations
     - ex. Parallel prefix scan kernels, check `scan_rot.qasm` and `scan_sum.qasm`
