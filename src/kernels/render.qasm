@@ -139,7 +139,7 @@ mov neg_half_M_LOG2E, -0.5 * M_LOG2E
     # kick off TMU read for indices @ tile_idx, tile_idx + 1
     mov r0, 2
     shl r0, tile_idx, r0
-    add t1s, gaussians_touched, r0
+    add t0s, gaussians_touched, r0
     add r0, r0, 4
     add t1s, gaussians_touched, r0
 
@@ -151,7 +151,7 @@ mov neg_half_M_LOG2E, -0.5 * M_LOG2E
         mov pixel_buffer+row, 0
     .endr
 
-    ldtmu1
+    ldtmu0
     mov gaussian_idx, r4
 
     ldtmu1
@@ -171,37 +171,39 @@ mov neg_half_M_LOG2E, -0.5 * M_LOG2E
         shl r0, r4, 2
 
         add t0s, cov2d_inv_x, r0
-        add t0s, cov2d_inv_y, r0
+        add t1s, cov2d_inv_y, r0
         add t0s, cov2d_inv_z, r0
-        add t0s, opacity, r0
-        add t1s, screen_x, r0
-        add t1s, screen_y, r0
-        add t1s, color_r, r0
+        add t1s, opacity, r0
 
         itof px, x; ldtmu0
         mov cur_cov2d_inv_x, r4
-        itof py, y; ldtmu0
+        itof py, y; ldtmu1
         mov cur_cov2d_inv_y, r4
 
-        add t0s, color_g, r0
-        add t0s, color_b, r0
+        add t0s, screen_x, r0
+        add t1s, screen_y, r0
 
         ldtmu0
         mov cur_cov2d_inv_z, r4
-        ldtmu0
+        ldtmu1
         mov cur_opacity, r4
+
+        add t0s, color_r, r0
+        add t1s, color_g, r0
 
         fadd px, px, 0.5
         fadd py, py, 0.5
 
-        ldtmu1
+        ldtmu0
         mov cur_screen_x, r4
         ldtmu1
         mov cur_screen_y, r4
 
-        ldtmu1
-        mov cur_color_r, r4
+        add t0s, color_b, r0
+
         ldtmu0
+        mov cur_color_r, r4
+        ldtmu1
         mov cur_color_g, r4
         ldtmu0
         mov cur_color_b, r4
