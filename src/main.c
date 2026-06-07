@@ -29,6 +29,7 @@ static const int MiB = 1024 * 1024;
 static Arena data_arena;
 static GaussianSplat gs;
 static FontSettings fs;
+static Camera* cam;
 static bool rendering, spiral;
 static uint32_t instructions;
 
@@ -191,7 +192,7 @@ void render_loop() {
 #if VERBOSE
     printk("Initializing Camera...\n");
 #endif
-    Camera* c = arena_alloc_align(&data_arena, sizeof(Camera), 16);
+    // Camera* c = arena_alloc_align(&data_arena, sizeof(Camera), 16);
 
     // enable UART interrupts (don't wanna interrupt SD card reading)
     // also clear cache in case user was inputting stuff
@@ -210,9 +211,9 @@ void render_loop() {
 #endif
 
         Vec3 cam_pos = spiral_camera(center, cur_radius);
-        init_camera(c, cam_pos, center, cam_up, WIDTH, HEIGHT);
+        init_camera(cam, cam_pos, center, cam_up, WIDTH, HEIGHT);
 
-        gs_render(&gs, c);
+        gs_render(&gs, cam);
 
 #if VERBOSE
         uint32_t render_t = sys_timer_get_usec() - t;
@@ -329,7 +330,9 @@ void main() {
 #if VERBOSE
     printk("Initializing heap & data arena...\n");
 #endif
-    arena_init_qpu(&data_arena, 350 * MiB);
+    arena_init_qpu(&data_arena, 340 * MiB);
+    cam = arena_alloc_align(&data_arena, sizeof(Camera), 16);
+
 
     // Init framebuffer
 #if VERBOSE

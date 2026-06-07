@@ -11,7 +11,7 @@
 
 typedef struct {
     GaussianPtr g;
-    ProjectedGaussianPtr pg;
+    ProjectedGaussianPtr pg[2];
     ProjectedGaussianPtr pg_all[2];
 
     Arena* data_arena;
