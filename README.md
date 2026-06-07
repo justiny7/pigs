@@ -23,9 +23,9 @@ I'm using a Raspberry Pi Zero W in a bare-metal environment. Make sure you have 
 With this, you can clone and compile the repo:
 ```bash
 # clone
-git clone xxx
+git clone git@github.com:justiny7/pigs.git
 cd pigs
-git submodule init --recursive
+git submodule update --init --recursive
 
 # compile
 make                    # (if your make version is too old, you might get an error - I used homebrew's gmake)
