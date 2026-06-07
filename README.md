@@ -3,15 +3,51 @@
 
 https://github.com/user-attachments/assets/d81c6e70-77da-4a90-9f70-14543ebd557b
 
-
 ## Intro
 
-We built an (almost) real-time Gaussian splat renderer on the Raspberry Pi! It has three states:
+This is an (almost) real-time Gaussian splat renderer on a Raspberry Pi Zero W! It has three states:
 - A menu screen listing all .ply files from the SD card
 - A renderer screen rendering a splat model selected from the menu
 - A toggleable instruction screen showing the commands
 
 In the renderer, the camera orbits the model in a spherical path by default, but you can toggle manual camera controls as well as zoom in and out.
+
+## Setup
+
+### Installation
+I'm using a Raspberry Pi Zero W in a bare-metal environment. Make sure you have some cross compiler that can compile C code with no Linux libraries (I'm using musl's `arm-none-eabi` toolchain on Mac).
+- This codebase is built on top of a bare-metal OS I've been working on at [rpi\_os](https://github.com/justiny7/rpi_os). It comes with a bootloader which makes uploading kernel images to the Pi easier - feel free to follow the instructions in that repository to set it up, or use your own bootloader (or just copy the kernel to the SD card)
+- You'll also need to install vc4asm, an assembler for VideoCore IV kernels. On Mac, you can do so by running `brew install vc4asm`.
+    - Note: there is one issue I ran into when compiling vc4 code with not being able to find the build-in include files (vc4.qinc). To fix this, I updated the qasm rules in the Makefile (lines 67-69) with the absolute path to where my vc4 binary is stored. You may have to do the same.
+
+With this, you can clone and compile the repo:
+```bash
+# clone
+git clone xxx
+cd pigs
+git submodule init --recursive
+
+# compile
+make                    # (if your make version is too old, you might get an error - I used homebrew's gmake)
+rpi-install kernel.img  # (or use your own bootloader / copy to SD card)
+```
+
+The program looks for all `.ply` files in the root of your SD card, but they must be formatted in a certain way (according to the `Gaussian` struct in [include/gaussian.h](include/gaussian.h)). This should be the way most plys are formatted by default, but you should double check. The program also uses the regular right-handed camera orientation (Y up, X right, Z out). I've compiled some pre-formatted splats you can find [here](https://drive.google.com/drive/folders/1IMnQH97K2bap2XiZzAO3b9djTZOY_Kj1?usp=sharing) (sources below). These are the ones in the demo - since the Pi Zero only has 512 MB of RAM, I tried finding models with less than 300K Gaussians.
+
+Finally, you'll need some way to connect an HDMI device to your Pi so you can see the display!
+
+### Instructions
+
+| Mode | Keys | Control |
+| ----- | ---- | ----- |
+| Menu | I, K, Enter | Select model (up/down/select) |
+| Renderer | I, K | Zoom in/out|
+| Renderer | Space | Reset zoom to default |
+| Renderer | C | Toggle camera-control mode |
+| Renderer | W, A, S, D | Move camera in camera-control mode |
+| Both | H | Toggle help menu |
+
+## How it works
 
 ### Gaussian splatting background
 A bit of background on the Gaussian splatting pipeline:
@@ -40,7 +76,7 @@ We have seven QPU kernels that help preprocess and render the Gaussians. Not goi
 - Kernel abstraction for any qasm code + loading unifs
 - Asynchronous kernel launching: since kernels execute asynchronously on the QPU, we can sort (the only part of the pipeline on CPU) while rendering on the QPU for massive speedups
 - Double buffering: we allocate a framebuffer twice as large as the physical screen and change the virtual offset to double buffer, always rendering to the “inactive” buffer
-Actually, we allocate a framebuffer 3x as large as the physical screen and use the third buffer as the static instruction screen
+    - (Actually, we allocate a framebuffer 3x as large as the physical screen and use the third buffer as the static instruction screen)
 
 ### Arena allocator
 Simple bump allocator for managing regions of memory, allowing for easily creating/destroying arenas after they’re done being used:
@@ -61,4 +97,12 @@ Cooperative and preemptive threads to allow for seamless switching between menu,
     - We used preemptive threads for the renderer and instruction screen because you wanna be able to quit them at any time and the menu thread will handle the mess
 
 ### Bitmap font
-Hand-wrote a bunch of characters from this font to display text on the framebuffer: https://int10h.org/oldschool-pc-fonts/fontlist/font?dos-v_twn16.
+Hand-wrote a bunch of characters from [this font](https://int10h.org/oldschool-pc-fonts/fontlist/font?dos-v_twn16) to display text on the framebuffer.
+
+
+## Sources
+- [Fly splat (direct download)](https://github.com/danybittel/splats/releases/download/splat/cluster.fly.zip)
+- [Cactus splat](https://note.com/steam_studio/n/ne9736d94f162)
+- [All other splats](https://huggingface.co/VladKobranov/splats/tree/main)
+- [DOS/V TWN16 font](https://int10h.org/oldschool-pc-fonts/fontlist/font?dos-v_twn16)
+

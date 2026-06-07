@@ -2,7 +2,7 @@
 
 .set stride, ra0    # tile stride = NUM_QPUS
 .set NUM_TILES, rb0
-.set qpu_num, ra1
+.set qpu_num, rb20
 
 .set max_tile_width, ra2
 .set max_tile_width_recip, rb1
@@ -30,8 +30,8 @@
 
 .set base_row, ra8          # (qpu_num * 4)
 .set tile_idx, rb12
-.set gaussian_idx, rb13
-.set gaussian_idx_end, ra9
+.set gaussian_idx, ra9
+.set gaussian_idx_end, rb13
 
 .set cur_cov2d_inv_x, rb14
 .set cur_cov2d_inv_y, rb15
@@ -39,7 +39,7 @@
 .set cur_opacity, rb17
 .set cur_screen_x, rb18
 .set cur_screen_y, rb19
-.set cur_color_r, rb20
+.set cur_color_r, ra1
 .set cur_color_g, rb21
 .set cur_color_b, rb22
 
@@ -213,10 +213,9 @@ mov neg_half_M_LOG2E, -0.5 * M_LOG2E
             fadd r2, r2, r3; fmul r0, cur_cov2d_inv_z, r1
 
             fmul r0, r0, r1
-            fadd r2, r2, r0; mov r3, neg_half_M_LOG2E
+            fadd r2, r2, r0
 
-            fmul r2, r2, r3
-            mov sfu_exp, r2
+            fmul sfu_exp, r2, neg_half_M_LOG2E
 
             # unpack 8[a/b/c]f takes bytes 0/1/2 in range [0, 255] -> [0.0, 1.0]
             mov out_r, (pixel_buffer+row).unpack8cf
@@ -225,10 +224,9 @@ mov neg_half_M_LOG2E, -0.5 * M_LOG2E
 
             # r0 stores alpha
             fmul r0, cur_opacity, r4
-            fsub r3, 1.0, r0
+            fsub r3, 1.0, r0; fmul r1, cur_color_r, r0
             
             # calc out_r
-            fmul r1, cur_color_r, r0
             fmul r2, r3, out_r
             fadd r1, r1, r2; fmul r2, cur_color_g, r0
             mov.pack8csf pixel_buffer+row, r1  # converts [0.0, 1.0] to [0, 255] in byte 2
@@ -245,8 +243,7 @@ mov neg_half_M_LOG2E, -0.5 * M_LOG2E
         .endr
 
         brr -, :1
-        mov r0, 1
-        add gaussian_idx, gaussian_idx, r0
+        add gaussian_idx, gaussian_idx, 1
         nop
 :2
     
@@ -273,7 +270,8 @@ mov neg_half_M_LOG2E, -0.5 * M_LOG2E
 mov tile_idx, qpu_num
 
 # multiply qpu_num by 4 to get VPM base row
-shl base_row, qpu_num, 2
+mov r0, 2
+shl base_row, qpu_num, r0
 
 :loop
     calc_tile_xy

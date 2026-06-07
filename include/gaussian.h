@@ -9,7 +9,6 @@
 // #define MAX_GAUSSIANS 96000
 #define MAX_GAUSSIANS 4000000
 
-// SH coefficients as static const to avoid QEMU .rodata loading issues
 static const float SH_C0 = 0.28209479177387814f;
 static const float SH_C1 = 0.4886025119029199f;
 
@@ -29,16 +28,6 @@ static const float SH_C3[] = {
     1.445305721320277f,
     -0.5900435899266435f
 };
-
-/*
-typedef struct {
-    Vec3 pos;
-    Vec3 scale;
-    Vec4 rot;
-    float opacity;
-    Vec3 sh[16];
-} Gaussian;
-*/
 
 typedef struct __attribute__((packed, aligned(4))) {
     float pos_x;
@@ -115,6 +104,8 @@ typedef struct {
 void init_gaussian_ptr(GaussianPtr *p, Arena* a, uint32_t size);
 void init_projected_gaussian_ptr(ProjectedGaussianPtr *p, Arena* a, uint32_t size);
 
+// Old CPU functions (now on QPU)
+/*
 Vec3 eval_sh(Vec3 pos, Vec3* sh, Vec3 cam_pos);
 Mat3 compute_cov3d(Vec3 scale, Vec4 rot);
 Vec3 project_cov2d(Vec3 pos, Mat3 cov3d, Mat4 w2c, float fx, float fy);
@@ -122,5 +113,6 @@ Vec3 compute_cov2d_inverse(Vec3 cov2d);
 float eval_gaussian_2d(float px, float py, float cx, float cy, Vec3 cov_inv);
 
 void precompute_gaussians(Camera* c, Gaussian* g, ProjectedGaussian* pg, uint32_t num_gaussians);
+*/
 
 #endif

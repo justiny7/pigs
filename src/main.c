@@ -23,31 +23,33 @@
 #define NUM_QPUS 12
 #define INSTRUCTIONS_VIRTUAL_OFFSET (HEIGHT * 2)
 
-#define VERBOSE
+#define VERBOSE 1
 
-const int MiB = 1024 * 1024;
-Arena data_arena;
-GaussianSplat gs;
-FontSettings fs;
-bool rendering, spiral;
-uint32_t instructions;
+static const int MiB = 1024 * 1024;
+static Arena data_arena;
+static GaussianSplat gs;
+static FontSettings fs;
+static bool rendering, spiral;
+static uint32_t instructions;
 
-uint32_t* pixels;
-uint32_t ply_cluster, filesize;
-float cur_radius, calc_radius;
-float theta, phi_t;
+static uint32_t* pixels;
+static uint32_t ply_filesize;
+static fatdir_t* ply_fatdir;
+static float cur_radius, calc_radius;
+static float theta, phi_t;
 
-volatile Thread menu_thread, render_thread, instructions_thread;
+static volatile Thread menu_thread, render_thread, instructions_thread;
 volatile Thread* current_thread;
 volatile Thread* next_thread;
 
+// from main.S
 void __attribute__((interrupt("IRQ"))) irq_handler();
 void __attribute__((interrupt("SWI"))) svc_handler();
 void start_thread(volatile uint32_t* sp);
 uint32_t get_sp();
 
-// UART interrupt to stop rendering + zoom controls
 void scheduler() {
+    // UART interrupt to stop rendering + zoom controls
     if (uart_has_interrupt()) {
         uint32_t aux_irq = GET32(AUX_IRQ);
         if (aux_irq & 1) {
@@ -177,17 +179,17 @@ void instructions_loop() {
 }
 
 void render_loop() {
-#ifdef VERBOSE
-    uart_puts("Reading PLY...\n");
+#if VERBOSE
+    printk("Reading PLY...\n");
 #endif
 
     Vec3 center;
-    gs_read_ply(&gs, ply_cluster, filesize, &center, &calc_radius);
+    gs_read_ply(&gs, ply_fatdir, ply_filesize, &center, &calc_radius);
 
     Vec3 cam_up = { { 0.0f, 1.0f, 0.0f } };
 
-#ifdef VERBOSE
-    uart_puts("Initializing Camera...\n");
+#if VERBOSE
+    printk("Initializing Camera...\n");
 #endif
     Camera* c = arena_alloc_align(&data_arena, sizeof(Camera), 16);
 
@@ -203,7 +205,7 @@ void render_loop() {
     spiral = true;
     theta = phi_t = 0.0f;
     while (1) {
-#ifdef VERBOSE
+#if VERBOSE
         uint32_t t = sys_timer_get_usec();
 #endif
 
@@ -212,11 +214,9 @@ void render_loop() {
 
         gs_render(&gs, c);
 
-#ifdef VERBOSE
+#if VERBOSE
         uint32_t render_t = sys_timer_get_usec() - t;
-        uart_puts("Render time: ");
-        uart_putd(render_t);
-        uart_puts("\n");
+        printk("Render time: %d\n", render_t);
 #endif
     }
 }
@@ -235,7 +235,7 @@ void menu_loop() {
     uint32_t num_files;
     uint8_t* lfns;
     fatdir_t* ply_files;
-    fat_get_plys(&ply_files, &lfns, &num_files);
+    fat_get_files_ext_lfn("PLY", &ply_files, &lfns, &num_files);
 
     fs.scale = 2;
     fs.height = HEIGHT * 3;
@@ -289,11 +289,10 @@ void menu_loop() {
             }
         }
 
-        ply_cluster = fatdir_get_cluster(&ply_files[selection]);
-        filesize = ply_files[selection].size;
+        ply_fatdir = &ply_files[selection];
+        ply_filesize = ply_fatdir->size;
         rendering = true;
 
-        uint32_t heap_size = heap_get_size();
         uint32_t data_size = data_arena.size;
 
         thread_yield();
@@ -302,7 +301,6 @@ void menu_loop() {
         qpu_block();
 
         // reset memory
-        free_to(heap_size);
         arena_dealloc_to(&data_arena, data_size);
         gs_reset_arenas(&gs);
 
@@ -314,16 +312,11 @@ void menu_loop() {
 
 void main() {
     // Install ISRs
-    extern uint32_t interrupt_handler_ptr;
-    interrupt_handler_ptr = (uint32_t) irq_handler;
+    extern uint32_t irq_ptr;
+    irq_ptr = (uint32_t) irq_handler;
 
-    extern uint32_t swi_handler_ptr;
-    swi_handler_ptr = (uint32_t) svc_handler;
-
-    // Init MMU
-    page_table_init();
-    mmu_init();
-    mmu_enable();
+    extern uint32_t swi_ptr;
+    swi_ptr = (uint32_t) svc_handler;
 
     // Enable dcache, icache, BTB
     mmu_enable_caches();
@@ -333,36 +326,35 @@ void main() {
     mbox_set_clock_rate(MBOX_CLK_V3D, mbox_get_max_clock_rate(MBOX_CLK_V3D));
 
     // Init heap and data arena
-#ifdef VERBOSE
-    uart_puts("Initializing heap & data arena...\n");
+#if VERBOSE
+    printk("Initializing heap & data arena...\n");
 #endif
-    heap_init(70 * MiB);
     arena_init_qpu(&data_arena, 350 * MiB);
 
     // Init framebuffer
-#ifdef VERBOSE
-    uart_puts("Initializing framebuffer...\n");
+#if VERBOSE
+    printk("Initializing framebuffer...\n");
 #endif
 
     uint32_t* fb;
     mbox_framebuffer_init(WIDTH, HEIGHT, WIDTH, HEIGHT * 3, 32, &fb); // double buffer
     pixels = (uint32_t*) TO_CPU(fb);
 
-#ifdef VERBOSE
-    uart_puts("Initializing SD card / FAT32...\n");
+#if VERBOSE
+    printk("Initializing SD card / FAT32...\n");
 #endif
     // Init SD card / FAT32
     fat_init();
     
-#ifdef VERBOSE
-    uart_puts("Initializing font...\n");
+#if VERBOSE
+    printk("Initializing font...\n");
 #endif
     // Initialize font
     font_init();
 
     // Initialize Gaussian splat
-#ifdef VERBOSE
-    uart_puts("Initializing Gaussian splat...\n");
+#if VERBOSE
+    printk("Initializing Gaussian splat...\n");
 #endif
     gs_init(&gs, &data_arena, pixels, NUM_QPUS);
 

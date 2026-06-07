@@ -1,11 +1,8 @@
 #include "gaussian_splat.h"
-#include "fat.h"
-#include "emmc.h"
 #include "sys_timer.h"
 #include "lib.h"
 #include "math.h"
-#include "uart.h"
-#include "mmu.h"
+#include "kmem.h"
 #include "mailbox_interface.h"
 
 #include "project_points_cov2d_inv.h"
@@ -18,13 +15,10 @@
 
 #include <stddef.h>
 
-// #define DEBUG
-#include "debug.h"
-
 static Kernel project_points_k, sh_k, bbox_k, tile_k, render_k;
 static Kernel scan_rot_k, scan_sum_k;
 
-// #define VERBOSE
+#define VERBOSE 0
 
 void gs_init(GaussianSplat* gs, Arena* data_arena, uint32_t* framebuffer, uint32_t num_qpus) {
     kernel_init(&project_points_k, num_qpus, 35,
@@ -74,11 +68,11 @@ void gs_free_kernels() {
     kernel_free(&scan_sum_k);
 }
 
-void gs_read_ply(GaussianSplat* gs, uint32_t ply_cluster, uint32_t filesize,
+void gs_read_ply(GaussianSplat* gs, const fatdir_t* ply_fatdir, uint32_t filesize,
         Vec3* center, float* radius) {
 
     uint8_t* data;
-    fat_readfile_cluster(ply_cluster, &data);
+    fat_read_file_fatdir(ply_fatdir, &data);
 
     const char* vertex_count = "vertex ";
     const char* end_header = "end_header\n";
@@ -172,14 +166,14 @@ void gs_read_ply(GaussianSplat* gs, uint32_t ply_cluster, uint32_t filesize,
 
         st += sizeof(Gaussian);
 
-#ifdef VERBOSE
+#if VERBOSE
         if ((i + 1) % 5000 == 0) {
-            uart_puts("Loaded ");
-            uart_putd(i + 1);
-            uart_puts(" gaussians\n");
+            printk("Loaded %d gaussian\n", i + 1);
         }
 #endif
     }
+
+    kvfree(data);
 
     center->x = x_sum / num_gaussians;
     center->y = y_sum / num_gaussians;
@@ -226,8 +220,8 @@ void qpu_scan(GaussianSplat* gs, uint32_t* arr, uint32_t n) {
 void render_inactive_frame(GaussianSplat *gs) {
     uint32_t inactive_arena = !gs->active_arena;
     if (gs->render_arena[inactive_arena].capacity) {
-#ifdef VERBOSE
-        uart_puts("RENDERING...\n");
+#if VERBOSE
+        printk("RENDERING...\n");
 #endif
 
         kernel_reset_unifs(&render_k);
@@ -471,20 +465,18 @@ void count_intersections(GaussianSplat* gs) {
 void gs_render(GaussianSplat* gs, Camera* c) {
     gs_set_camera(gs, c);
 
-#ifdef VERBOSE
+#if VERBOSE
     uint32_t t;
-    uart_puts("PREPROCESSING GAUSSIANS...\n");
+    printk("PREPROCESSING GAUSSIANS...\n");
     t = sys_timer_get_usec();
 #endif
 
     precompute_gaussians_qpu(gs);
 
-#ifdef VERBOSE
-    uint32_t qpu_t = sys_timer_get_usec() - t;
-
-    DEBUG_D(qpu_t);
-
-    uart_puts("COUNTING INTERSECTIONS...\n");
+#if VERBOSE
+    printk("Time: %d us\n", sys_timer_get_usec() - t);
+    printk("COUNTING INTERSECTIONS...\n");
+    t = sys_timer_get_usec();
 #endif
 
     uint32_t active_arena = gs->active_arena;
@@ -502,29 +494,19 @@ void gs_render(GaussianSplat* gs, Camera* c) {
 
     count_intersections(gs);
 
-#ifdef VERBOSE
-    uart_puts("SORTING...\n");
-
+#if VERBOSE
+    printk("Time: %d us\n", sys_timer_get_usec() - t);
+    printk("SORTING/RENDERING...\n");
     t = sys_timer_get_usec();
 #endif
 
     render_sort(gs);
 
-#ifdef VERBOSE
-    uint32_t qpu_sort_t = sys_timer_get_usec() - t;
-    DEBUG_D(qpu_sort_t);
-
-    uart_puts("Sort/render time: ");
-    uart_putd(qpu_sort_t);
-    uart_puts("\n");
-
-    uart_puts("CPU clock: ");
-    uart_putd(mbox_get_measured_clock_rate(MBOX_CLK_ARM));
-    uart_puts("\n");
-
-    uart_puts("GPU clock: ");
-    uart_putd(mbox_get_measured_clock_rate(MBOX_CLK_V3D));
-    uart_puts("\n");
+#if VERBOSE
+    printk("Time: %d us\n", sys_timer_get_usec() - t);
+    printk("CPU clock: %d\nGPU clock: %d\n",
+            mbox_get_measured_clock_rate(MBOX_CLK_ARM),
+            mbox_get_measured_clock_rate(MBOX_CLK_V3D));
 #endif
 
     // flip active arena

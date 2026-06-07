@@ -1,0 +1,3 @@
+[submodule "rpi_os"]
+	path = rpi_os
+	url = git@github.com:justiny7/rpi_os.git

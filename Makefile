@@ -3,10 +3,16 @@ CC      = arm-none-eabi-gcc
 LD      = arm-none-eabi-ld
 OBJCOPY = arm-none-eabi-objcopy
 
+# submodule
+RPI_OS_DIR = rpi_os
+RPI_OS_INC = $(RPI_OS_DIR)/include
+RPI_OS_LIB = $(RPI_OS_DIR)/build/librpi_os.a
+LINKER_SCRIPT = $(RPI_OS_DIR)/linker.ld
+
 # flags
-CFLAGS  = -mcpu=arm1176jzf-s -mfloat-abi=hard -mfpu=vfp -fpic -ffreestanding -O2 -Wall -Wextra -nostdlib -Iinclude -Isrc/kernels
+CFLAGS  = -mcpu=arm1176jzf-s -mfloat-abi=hard -mfpu=vfp -fpic -ffreestanding -O2 -Wall -Wextra -nostdlib -Iinclude -Isrc/kernels -I$(RPI_OS_INC)
 ASFLAGS = -mcpu=arm1176jzf-s -mfpu=vfp
-LDFLAGS = -T linker.ld -nostdlib -mfloat-abi=hard -mfpu=vfp
+LDFLAGS = -T $(LINKER_SCRIPT) -nostdlib -mfloat-abi=hard -mfpu=vfp
 
 # directories
 SRC_DIR   = src
@@ -38,11 +44,15 @@ LIB_OBJS = \
 # targets
 all: kernel.img
 
+# build OS library first (skip if exists)
+$(RPI_OS_LIB):
+	@if [ ! -f $(RPI_OS_LIB) ]; then $(MAKE) -C $(RPI_OS_DIR) lib; fi
+
 kernel.img: $(BUILD_DIR)/kernel.elf
 	$(OBJCOPY) $< -O binary $@
 
-$(BUILD_DIR)/kernel.elf: $(OBJS) $(LIB_OBJS)
-	$(CC) $(LDFLAGS) $(OBJS) $(LIB_OBJS) -lm -lgcc -o $@
+$(BUILD_DIR)/kernel.elf: $(RPI_OS_LIB) $(OBJS) $(LIB_OBJS)
+	$(CC) $(LDFLAGS) $(OBJS) $(LIB_OBJS) -L$(dir $(RPI_OS_LIB)) -lrpi_os -lgcc -o $@
 
 # asm rules
 $(BUILD_DIR)/%.S.o: %.S
@@ -62,5 +72,6 @@ $(OBJS): $(SRCS_QASM:$(KERNEL_DIR)/%.qasm=$(KERNEL_DIR)/%.h)
 
 clean:
 	rm -rf $(BUILD_DIR) kernel.img
+	$(MAKE) -C $(RPI_OS_DIR) clean
 
 .PHONY: all clean

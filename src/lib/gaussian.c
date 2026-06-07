@@ -41,6 +41,7 @@ void init_projected_gaussian_ptr(ProjectedGaussianPtr *p, Arena* a, uint32_t siz
     p->size = size;
 }
 
+/*
 Vec3 eval_sh(Vec3 pos, Vec3* sh, Vec3 cam_pos) {
     Vec3 dir = vec3_sub(pos, cam_pos);
     dir = vec3_sdiv(dir, vec3_len(dir));
@@ -136,7 +137,6 @@ float eval_gaussian_2d(float px, float py, float cx, float cy, Vec3 cov_inv) {
     return expf(power);
 }
 
-/*
 void precompute_gaussians(Camera* c, Gaussian* g, ProjectedGaussian* pg, uint32_t num_gaussians) {
     for (uint32_t i = 0; i < num_gaussians; i++) {
         project_point(c, g[i].pos, &pg[i].depth, &pg[i].screen_x, &pg[i].screen_y);

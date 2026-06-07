@@ -4,6 +4,7 @@
 #include "arena_allocator.h"
 #include "gaussian.h"
 #include "kernel.h"
+#include "fat.h"
 
 #define SIMD_WIDTH 16
 #define TILE_SIZE 16
@@ -30,7 +31,7 @@ void gs_init(GaussianSplat* gs, Arena* data_arena, uint32_t* framebuffer, uint32
 void gs_reset_arenas(GaussianSplat* gs);
 void gs_free_kernels();
 
-void gs_read_ply(GaussianSplat* gs, uint32_t ply_cluster, uint32_t filesize,
+void gs_read_ply(GaussianSplat* gs, const fatdir_t* ply_fatdir, uint32_t filesize,
         Vec3* center, float* radius);
 void gs_render(GaussianSplat* gs, Camera* c);
 
