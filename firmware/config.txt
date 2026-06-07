@@ -1,0 +1,14 @@
+gpu_mem=384
+
+arm_freq=1000
+gpu_freq=500
+core_freq=250
+
+over_voltage=6
+
+kernel=kernel.img
+kernel_address=0x8000
+
+force_turbo=0
+
+enable_uart=1
