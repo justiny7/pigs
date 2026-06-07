@@ -117,7 +117,7 @@ void gs_read_ply(GaussianSplat* gs, const fatdir_t* ply_fatdir, uint32_t filesiz
     }
 
     st += 11;
-    assert(st + num_gaussians * sizeof(Gaussian) == filesize, "ply file size mismatch");
+    assert(st + num_gaussians * sizeof(Gaussian) == filesize, "gs_read_ply: ply file size mismatch - check file format?");
 
     float x_sum = 0.0f, y_sum = 0.0f, z_sum = 0.0f;
     float mn[] = { 1e9, 1e9, 1e9 };
