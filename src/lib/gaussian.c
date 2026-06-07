@@ -20,22 +20,27 @@ void init_gaussian_ptr(GaussianPtr *p, Arena* a, uint32_t size) {
 
     p->size = size;
 }
-void init_projected_gaussian_ptr(ProjectedGaussianPtr *p, Arena* a, uint32_t size) {
+void init_projected_gaussian_ptr(ProjectedGaussianPtr *p, Arena* a,
+        uint32_t size, bool init_data) {
     // check sizeof(float) = sizeof(uint32_t) for radius_id
     assert(sizeof(float) == sizeof(uint32_t), "Size of float/uint32_t mismatched");
 
     // align to 16 floats bc size isn't necessarily divisible by 16
     uint32_t align = 16 * sizeof(float);
-    p->screen_x = arena_alloc_align(a, size * sizeof(float), align);
-    p->screen_y = arena_alloc_align(a, size * sizeof(float), align);
+
+    if (init_data) {
+        p->screen_x = arena_alloc_align(a, size * sizeof(float), align);
+        p->screen_y = arena_alloc_align(a, size * sizeof(float), align);
+        p->cov2d_inv_x = arena_alloc_align(a, size * sizeof(float), align);
+        p->cov2d_inv_y = arena_alloc_align(a, size * sizeof(float), align);
+        p->cov2d_inv_z = arena_alloc_align(a, size * sizeof(float), align);
+        p->color_r = arena_alloc_align(a, size * sizeof(float), align);
+        p->color_g = arena_alloc_align(a, size * sizeof(float), align);
+        p->color_b = arena_alloc_align(a, size * sizeof(float), align);
+        p->opacity = arena_alloc_align(a, size * sizeof(float), align);
+    }
+
     p->depth_key = arena_alloc_align(a, size * sizeof(float), align);
-    p->cov2d_inv_x = arena_alloc_align(a, size * sizeof(float), align);
-    p->cov2d_inv_y = arena_alloc_align(a, size * sizeof(float), align);
-    p->cov2d_inv_z = arena_alloc_align(a, size * sizeof(float), align);
-    p->color_r = arena_alloc_align(a, size * sizeof(float), align);
-    p->color_g = arena_alloc_align(a, size * sizeof(float), align);
-    p->color_b = arena_alloc_align(a, size * sizeof(float), align);
-    p->opacity = arena_alloc_align(a, size * sizeof(float), align);
     p->radius_id = arena_alloc_align(a, size * sizeof(float), align);
 
     p->size = size;

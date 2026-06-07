@@ -4,6 +4,7 @@
 #include "types.h"
 #include "camera.h"
 #include "arena_allocator.h"
+
 #include <stdint.h>
 
 // #define MAX_GAUSSIANS 96000
@@ -102,7 +103,8 @@ typedef struct {
 } ProjectedGaussianPtr;
 
 void init_gaussian_ptr(GaussianPtr *p, Arena* a, uint32_t size);
-void init_projected_gaussian_ptr(ProjectedGaussianPtr *p, Arena* a, uint32_t size);
+void init_projected_gaussian_ptr(ProjectedGaussianPtr *p, Arena* a,
+        uint32_t size, bool init_data);
 
 Mat3 compute_cov3d(Vec3 scale, Vec4 rot);
 

@@ -101,8 +101,8 @@ void gs_read_ply(GaussianSplat* gs, const fatdir_t* ply_fatdir, uint32_t filesiz
 
     gs->num_gaussians = num_gaussians;
     init_gaussian_ptr(&gs->g, gs->data_arena, num_gaussians);
-    init_projected_gaussian_ptr(&gs->pg[0], gs->data_arena, num_gaussians);
-    init_projected_gaussian_ptr(&gs->pg[1], gs->data_arena, num_gaussians);
+    init_projected_gaussian_ptr(&gs->pg[0], gs->data_arena, num_gaussians, true);
+    init_projected_gaussian_ptr(&gs->pg[1], gs->data_arena, num_gaussians, true);
 
     for (; ; st++) {
         int f = 0;
@@ -440,7 +440,7 @@ void count_intersections(GaussianSplat* gs) {
     assert(gs->num_intersections < MAX_GAUSSIANS, "Too many intersections");
 
     ProjectedGaussianPtr* pg_all = &gs->pg_all[active_arena];
-    init_projected_gaussian_ptr(pg_all, &gs->render_arena[active_arena], gs->num_intersections);
+    init_projected_gaussian_ptr(pg_all, &gs->render_arena[active_arena], gs->num_intersections, false);
 
     kernel_reset_unifs(&tile_k);
     for (uint32_t q = 0; q < gs->num_qpus; q++) {
