@@ -18,7 +18,7 @@ In the renderer, the camera orbits the model in a spherical path by default, but
 I'm using a Raspberry Pi Zero W in a bare-metal environment. Make sure you have some cross compiler that can compile C code with no Linux libraries (I'm using musl's `arm-none-eabi` toolchain on Mac).
 - This codebase is built on top of a bare-metal OS I've been working on at [rpi\_os](https://github.com/justiny7/rpi_os). It comes with a bootloader which makes uploading kernel images to the Pi easier - feel free to follow the instructions in that repository to set it up, or use your own bootloader (or just copy the kernel to the SD card)
 - You'll also need to install vc4asm, an assembler for VideoCore IV kernels. On Mac, you can do so by running `brew install vc4asm`.
-    - Note: there is one issue I ran into when compiling vc4 code with not being able to find the build-in include files (vc4.qinc). To fix this, I updated the qasm rules in the Makefile (lines 67-69) with the absolute path to where my vc4 binary is stored. You may have to do the same.
+    - **Note**: there is one issue I ran into when compiling vc4 code with not being able to find the built-in include files (`vc4.qinc`). To fix this, I updated the qasm rules in the Makefile (lines 67-69) with the absolute path to where my vc4 binary is stored. You may have to do the same.
 
 With this, you can clone and compile the repo:
 ```bash
@@ -33,6 +33,8 @@ rpi-install kernel.img  # (or use your own bootloader / copy to SD card)
 ```
 
 The program looks for all `.ply` files in the root of your SD card, but they must be formatted in a certain way (according to the `Gaussian` struct in [include/gaussian.h](include/gaussian.h)). This should be the way most plys are formatted by default, but you should double check. The program also uses the regular right-handed camera orientation (Y up, X right, Z out). I've compiled some pre-formatted splats you can find [here](https://drive.google.com/drive/folders/1IMnQH97K2bap2XiZzAO3b9djTZOY_Kj1?usp=sharing) (sources below). These are the ones in the demo - since the Pi Zero only has 512 MB of RAM, I tried finding models with less than 300K Gaussians.
+
+**IMPORTANT**: since the program allocates a lot of GPU memory, you need to make sure there is an adequate CPU/GPU memory split in your `config.txt`. Make sure `gpu_mem` is at least 350 (I have it at 384 by default, leaving 128MB for the CPU). I also have some overclocking settings enabled if you want faster rendering speeds. You can reference the [`config.txt`](firmware/config.txt) in this repo.
 
 Finally, you'll need some way to connect an HDMI device to your Pi so you can see the display!
 
