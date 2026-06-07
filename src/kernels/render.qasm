@@ -1,60 +1,61 @@
 .include <vc4.qinc>
 
-.set stride, ra0    # tile stride = NUM_QPUS
-.set NUM_TILES, rb0
-.set qpu_num, rb20
+.set stride,                ra0    # tile stride = NUM_QPUS
+.set NUM_TILES,             rb0
+.set qpu_num,               rb1
 
-.set max_tile_width, ra2
-.set max_tile_width_recip, rb1
+.set max_tile_width,        ra1
+.set max_tile_width_recip,  rb2
 .set TILE_SIZE, 16 # assume tile size is 16
 
-.set tile_x, ra3
-.set tile_y_16, ra4
+.set tile_x,                ra2
+.set tile_y_16,             ra3
 
-.set x, rb2
-.set y, ra5
+.set x,                     rb3
+.set y,                     ra4
 
-.set cov2d_inv_x, rb3
-.set cov2d_inv_y, rb4
-.set cov2d_inv_z, rb5
-.set opacity, rb6
-.set screen_x, rb7
-.set screen_y, rb8
-.set color_r, rb9
-.set color_g, rb10
-.set color_b, rb11
+.set gauss_id,              rb4
+.set cov2d_inv_x,           rb5
+.set cov2d_inv_y,           rb6
+.set cov2d_inv_z,           rb7
+.set opacity,               rb8
+.set screen_x,              rb9
+.set screen_y,              rb10
+.set color_r,               rb11
+.set color_g,               rb12
+.set color_b,               rb13
 
-.set gaussians_touched, ra6
+.set gaussians_touched,     ra5
 
-.set pixels, ra7
+.set pixels,                ra6
 
-.set base_row, ra8          # (qpu_num * 4)
-.set tile_idx, rb12
-.set gaussian_idx, ra9
-.set gaussian_idx_end, rb13
+.set base_row,              ra7 # (qpu_num * 4)
+.set tile_idx,              rb14
+.set gaussian_idx,          ra8
+.set gaussian_idx_end,      rb15
 
-.set cur_cov2d_inv_x, rb14
-.set cur_cov2d_inv_y, rb15
-.set cur_cov2d_inv_z, rb16
-.set cur_opacity, rb17
-.set cur_screen_x, rb18
-.set cur_screen_y, rb19
-.set cur_color_r, ra1
-.set cur_color_g, rb21
-.set cur_color_b, rb22
+.set cur_cov2d_inv_x,       rb16
+.set cur_cov2d_inv_y,       rb17
+.set cur_cov2d_inv_z,       rb18
+.set cur_opacity,           rb19
+.set cur_screen_x,          rb20
+.set cur_screen_y,          rb21
+.set cur_color_r,           ra9
+.set cur_color_g,           rb22
+.set cur_color_b,           rb23
 
-.set px, ra10
-.set py, ra11
+.set px,                    ra10
+.set py,                    ra11
 
-.set out_r, ra12
-.set out_g, ra13
-.set out_b, ra14
-.set out_addr, ra15
+.set out_r,                 ra12
+.set out_g,                 ra13
+.set out_b,                 ra14
+.set out_addr,              ra15
 
-.set pixel_buffer, ra16
+.set pixel_buffer,          ra16
 # ra16 - ra31 are reserved
 
-.set neg_half_M_LOG2E, rb24
+.set neg_half_M_LOG2E,      rb24
 
 mov stride, unif
 mov NUM_TILES, unif
@@ -62,6 +63,7 @@ mov qpu_num, unif
 mov max_tile_width, unif
 mov max_tile_width_recip, unif
 
+mov gauss_id, unif
 mov cov2d_inv_x, unif
 mov cov2d_inv_y, unif
 mov cov2d_inv_z, unif
@@ -163,6 +165,10 @@ mov neg_half_M_LOG2E, -0.5 * M_LOG2E
         mov r0, 2
         shl r0, gaussian_idx, r0
         mov y, tile_y_16  # reset y to y * TILE_SIZE
+
+        add t0s, gauss_id, r0
+        ldtmu0
+        shl r0, r4, 2
 
         add t0s, cov2d_inv_x, r0
         add t0s, cov2d_inv_y, r0

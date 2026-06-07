@@ -29,7 +29,7 @@ void gs_init(GaussianSplat* gs, Arena* data_arena, uint32_t* framebuffer, uint32
             calc_bbox, sizeof(calc_bbox));
     kernel_init(&tile_k, num_qpus, 14,
             calc_tile, sizeof(calc_tile));
-    kernel_init(&render_k, num_qpus, 16,
+    kernel_init(&render_k, num_qpus, 17,
             render, sizeof(render));
 
     kernel_init(&scan_rot_k, num_qpus, 4,
@@ -98,9 +98,11 @@ void gs_read_ply(GaussianSplat* gs, const fatdir_t* ply_fatdir, uint32_t filesiz
         num_gaussians = num_gaussians * 10 + (data[st++] - '0');
     }
 
+
     gs->num_gaussians = num_gaussians;
     init_gaussian_ptr(&gs->g, gs->data_arena, num_gaussians);
-    init_projected_gaussian_ptr(&gs->pg, gs->data_arena, num_gaussians);
+    init_projected_gaussian_ptr(&gs->pg[0], gs->data_arena, num_gaussians);
+    init_projected_gaussian_ptr(&gs->pg[1], gs->data_arena, num_gaussians);
 
     for (; ; st++) {
         int f = 0;
@@ -149,7 +151,8 @@ void gs_read_ply(GaussianSplat* gs, const fatdir_t* ply_fatdir, uint32_t filesiz
             gs->g.sh_z[j + 1][i] = gaus.f_rest[j + 30];
         }
 
-        gs->pg.opacity[i] = 1.0 / (1.0 + expf(-gaus.opacity));
+        float opacity = 1.0 / (1.0 + expf(-gaus.opacity));
+        gs->pg[0].opacity[i] = gs->pg[1].opacity[i] = opacity;
 
         Vec3 scale = { { gaus.scale_x, gaus.scale_y, gaus.scale_z } };
         Vec4 rot = { { gaus.rot_x, gaus.rot_y, gaus.rot_z, gaus.rot_w } };
@@ -217,7 +220,7 @@ void qpu_scan(GaussianSplat* gs, uint32_t* arr, uint32_t n) {
     kernel_execute(&scan_sum_k);
 }
 
-void render_inactive_frame(GaussianSplat *gs) {
+void render_inactive_frame(GaussianSplat* gs) {
     uint32_t inactive_arena = !gs->active_arena;
     if (gs->render_arena[inactive_arena].capacity) {
 #if VERBOSE
@@ -226,7 +229,9 @@ void render_inactive_frame(GaussianSplat *gs) {
 
         kernel_reset_unifs(&render_k);
 
+        ProjectedGaussianPtr* pg = &gs->pg[inactive_arena];
         ProjectedGaussianPtr* pg_all = &gs->pg_all[inactive_arena];
+
         for (uint32_t q = 0; q < gs->num_qpus; q++) {
             kernel_load_unif(&render_k, q, gs->num_qpus);
             kernel_load_unif(&render_k, q, gs->num_tiles);
@@ -235,18 +240,20 @@ void render_inactive_frame(GaussianSplat *gs) {
             kernel_load_unif(&render_k, q, gs->c->width / TILE_SIZE);
             kernel_load_unif(&render_k, q, 1.0 * TILE_SIZE / gs->c->width);
 
-            kernel_load_unif(&render_k, q, TO_BUS(pg_all->cov2d_inv_x));
-            kernel_load_unif(&render_k, q, TO_BUS(pg_all->cov2d_inv_y));
-            kernel_load_unif(&render_k, q, TO_BUS(pg_all->cov2d_inv_z));
-            kernel_load_unif(&render_k, q, TO_BUS(pg_all->opacity));
-            kernel_load_unif(&render_k, q, TO_BUS(pg_all->screen_x));
-            kernel_load_unif(&render_k, q, TO_BUS(pg_all->screen_y));
-            kernel_load_unif(&render_k, q, TO_BUS(pg_all->color_r));
-            kernel_load_unif(&render_k, q, TO_BUS(pg_all->color_g));
-            kernel_load_unif(&render_k, q, TO_BUS(pg_all->color_b));
+            kernel_load_unif(&render_k, q, TO_BUS(pg_all->radius_id));
+            kernel_load_unif(&render_k, q, TO_BUS(pg->cov2d_inv_x));
+            kernel_load_unif(&render_k, q, TO_BUS(pg->cov2d_inv_y));
+            kernel_load_unif(&render_k, q, TO_BUS(pg->cov2d_inv_z));
+            kernel_load_unif(&render_k, q, TO_BUS(pg->opacity));
+            kernel_load_unif(&render_k, q, TO_BUS(pg->screen_x));
+            kernel_load_unif(&render_k, q, TO_BUS(pg->screen_y));
+            kernel_load_unif(&render_k, q, TO_BUS(pg->color_r));
+            kernel_load_unif(&render_k, q, TO_BUS(pg->color_g));
+            kernel_load_unif(&render_k, q, TO_BUS(pg->color_b));
 
             kernel_load_unif(&render_k, q, TO_BUS(gs->gaussians_touched[inactive_arena]));
             kernel_load_unif(&render_k, q, TO_BUS(gs->framebuffer + inactive_arena * gs->num_tiles * TILE_SIZE * TILE_SIZE));
+
         }
 
         kernel_execute_async(&render_k);
@@ -315,15 +322,8 @@ void render_sort(GaussianSplat* gs) {
         for (int i = gs->num_intersections - 1; i >= 0; i--) {
             uint32_t j = --cnt2[temp_key[i]];
             uint32_t id = temp_id[i];
-            pg_all->screen_x[j] = gs->pg.screen_x[id];
-            pg_all->screen_y[j] = gs->pg.screen_y[id];
-            pg_all->cov2d_inv_x[j] = gs->pg.cov2d_inv_x[id];
-            pg_all->cov2d_inv_y[j] = gs->pg.cov2d_inv_y[id];
-            pg_all->cov2d_inv_z[j] = gs->pg.cov2d_inv_z[id];
-            pg_all->color_r[j] = gs->pg.color_r[id];
-            pg_all->color_g[j] = gs->pg.color_g[id];
-            pg_all->color_b[j] = gs->pg.color_b[id];
-            pg_all->opacity[j] = gs->pg.opacity[id];
+
+            pg_all->radius_id[j].id = id;
         }
     }
 
@@ -341,6 +341,8 @@ void precompute_gaussians_qpu(GaussianSplat* gs) {
     //////// PROJECT POINTS + COV2D INV
     kernel_reset_unifs(&project_points_k);
 
+    ProjectedGaussianPtr* pg = &gs->pg[gs->active_arena];
+    // ProjectedGaussianPtr* pg = &gs->pg[0];
     for (uint32_t q = 0; q < gs->num_qpus; q++) {
         kernel_load_unif(&project_points_k, q, gs->num_qpus * SIMD_WIDTH);
         kernel_load_unif(&project_points_k, q, gs->num_gaussians);
@@ -348,10 +350,10 @@ void precompute_gaussians_qpu(GaussianSplat* gs) {
         kernel_load_unif(&project_points_k, q, TO_BUS(gs->g.pos_x + q * SIMD_WIDTH));
         kernel_load_unif(&project_points_k, q, TO_BUS(gs->g.pos_y + q * SIMD_WIDTH));
         kernel_load_unif(&project_points_k, q, TO_BUS(gs->g.pos_z + q * SIMD_WIDTH));
-        kernel_load_unif(&project_points_k, q, TO_BUS(gs->pg.depth_key + q * SIMD_WIDTH));
-        kernel_load_unif(&project_points_k, q, TO_BUS(gs->pg.screen_x + q * SIMD_WIDTH));
-        kernel_load_unif(&project_points_k, q, TO_BUS(gs->pg.screen_y + q * SIMD_WIDTH));
-        kernel_load_unif(&project_points_k, q, TO_BUS(gs->pg.radius_id + q * SIMD_WIDTH));
+        kernel_load_unif(&project_points_k, q, TO_BUS(pg->depth_key + q * SIMD_WIDTH));
+        kernel_load_unif(&project_points_k, q, TO_BUS(pg->screen_x + q * SIMD_WIDTH));
+        kernel_load_unif(&project_points_k, q, TO_BUS(pg->screen_y + q * SIMD_WIDTH));
+        kernel_load_unif(&project_points_k, q, TO_BUS(pg->radius_id + q * SIMD_WIDTH));
 
         //  in order that we need for computation
         for (uint32_t i = 0; i < 12; i++) {
@@ -366,9 +368,9 @@ void precompute_gaussians_qpu(GaussianSplat* gs) {
             kernel_load_unif(&project_points_k, q, TO_BUS(gs->g.cov3d[i] + q * SIMD_WIDTH));
         }
 
-        kernel_load_unif(&project_points_k, q, TO_BUS(gs->pg.cov2d_inv_x + q * SIMD_WIDTH));
-        kernel_load_unif(&project_points_k, q, TO_BUS(gs->pg.cov2d_inv_y + q * SIMD_WIDTH));
-        kernel_load_unif(&project_points_k, q, TO_BUS(gs->pg.cov2d_inv_z + q * SIMD_WIDTH));
+        kernel_load_unif(&project_points_k, q, TO_BUS(pg->cov2d_inv_x + q * SIMD_WIDTH));
+        kernel_load_unif(&project_points_k, q, TO_BUS(pg->cov2d_inv_y + q * SIMD_WIDTH));
+        kernel_load_unif(&project_points_k, q, TO_BUS(pg->cov2d_inv_z + q * SIMD_WIDTH));
     }
 
     kernel_execute(&project_points_k);
@@ -376,7 +378,7 @@ void precompute_gaussians_qpu(GaussianSplat* gs) {
     ////////// SPHERICAL HARMONICS
     kernel_reset_unifs(&sh_k);
     float** sh[3] = { gs->g.sh_x, gs->g.sh_y, gs->g.sh_z };
-    float* colors[3] = { gs->pg.color_r, gs->pg.color_g, gs->pg.color_b };
+    float* colors[3] = { pg->color_r, pg->color_g, pg->color_b };
 
     for (uint32_t q = 0; q < gs->num_qpus; q++) {
         kernel_load_unif(&sh_k, q, gs->num_qpus * SIMD_WIDTH);
@@ -408,6 +410,8 @@ void count_intersections(GaussianSplat* gs) {
     gs->tiles_touched[active_arena] = arena_alloc_align(&gs->render_arena[active_arena], (gs->num_gaussians + 1) * sizeof(uint32_t), 16 * sizeof(uint32_t));
     memset(gs->tiles_touched[active_arena], 0, (gs->num_gaussians + 1) * sizeof(uint32_t));
 
+    ProjectedGaussianPtr* pg = &gs->pg[active_arena];
+
     /////////// CALCULATE BBOX
     kernel_reset_unifs(&bbox_k);
 
@@ -419,9 +423,9 @@ void count_intersections(GaussianSplat* gs) {
         kernel_load_unif(&bbox_k, q, gs->c->width / TILE_SIZE - 1);
         kernel_load_unif(&bbox_k, q, gs->c->height / TILE_SIZE - 1);
 
-        kernel_load_unif(&bbox_k, q, TO_BUS(gs->pg.screen_x + q * SIMD_WIDTH));
-        kernel_load_unif(&bbox_k, q, TO_BUS(gs->pg.screen_y + q * SIMD_WIDTH));
-        kernel_load_unif(&bbox_k, q, TO_BUS(gs->pg.radius_id + q * SIMD_WIDTH));
+        kernel_load_unif(&bbox_k, q, TO_BUS(pg->screen_x + q * SIMD_WIDTH));
+        kernel_load_unif(&bbox_k, q, TO_BUS(pg->screen_y + q * SIMD_WIDTH));
+        kernel_load_unif(&bbox_k, q, TO_BUS(pg->radius_id + q * SIMD_WIDTH));
 
         kernel_load_unif(&bbox_k, q, TO_BUS(gs->tiles_touched[active_arena] + 1 + q * SIMD_WIDTH));
     }
@@ -448,10 +452,10 @@ void count_intersections(GaussianSplat* gs) {
         kernel_load_unif(&tile_k, q, gs->c->width / TILE_SIZE - 1);
         kernel_load_unif(&tile_k, q, gs->c->height / TILE_SIZE - 1);
 
-        kernel_load_unif(&tile_k, q, TO_BUS(gs->pg.screen_x));
-        kernel_load_unif(&tile_k, q, TO_BUS(gs->pg.screen_y));
-        kernel_load_unif(&tile_k, q, TO_BUS(gs->pg.radius_id));
-        kernel_load_unif(&tile_k, q, TO_BUS(gs->pg.depth_key));
+        kernel_load_unif(&tile_k, q, TO_BUS(pg->screen_x));
+        kernel_load_unif(&tile_k, q, TO_BUS(pg->screen_y));
+        kernel_load_unif(&tile_k, q, TO_BUS(pg->radius_id));
+        kernel_load_unif(&tile_k, q, TO_BUS(pg->depth_key));
 
         kernel_load_unif(&tile_k, q, TO_BUS(gs->tiles_touched[active_arena]));
 
