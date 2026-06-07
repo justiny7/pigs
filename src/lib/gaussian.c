@@ -41,6 +41,20 @@ void init_projected_gaussian_ptr(ProjectedGaussianPtr *p, Arena* a, uint32_t siz
     p->size = size;
 }
 
+Mat3 compute_cov3d(Vec3 scale, Vec4 rot) {
+    Mat3 S;
+    for (int i = 0; i < 9; S.m[i++] = 0.0f);
+    S.m[0] = max(expf(scale.x), 1e-6f);
+    S.m[4] = max(expf(scale.y), 1e-6f);
+    S.m[8] = max(expf(scale.z), 1e-6f);
+
+    Vec4 q = vec4_sdiv(rot, vec4_len(rot));
+    Mat3 R = quat_to_rotmat(q);
+
+    Mat3 M = mat3_mm(R, S);
+    return mat3_mm(M, mat3_t(M));
+}
+
 /*
 Vec3 eval_sh(Vec3 pos, Vec3* sh, Vec3 cam_pos) {
     Vec3 dir = vec3_sub(pos, cam_pos);
@@ -78,20 +92,6 @@ Vec3 eval_sh(Vec3 pos, Vec3* sh, Vec3 cam_pos) {
     res = vec3_smax(res, 0.0f);
 
     return res;
-}
-
-Mat3 compute_cov3d(Vec3 scale, Vec4 rot) {
-    Mat3 S;
-    for (int i = 0; i < 9; S.m[i++] = 0.0f);
-    S.m[0] = max(expf(scale.x), 1e-6f);
-    S.m[4] = max(expf(scale.y), 1e-6f);
-    S.m[8] = max(expf(scale.z), 1e-6f);
-
-    Vec4 q = vec4_sdiv(rot, vec4_len(rot));
-    Mat3 R = quat_to_rotmat(q);
-
-    Mat3 M = mat3_mm(R, S);
-    return mat3_mm(M, mat3_t(M));
 }
 
 Vec3 project_cov2d(Vec3 pos, Mat3 cov3d, Mat4 w2c, float fx, float fy) {

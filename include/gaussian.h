@@ -104,10 +104,11 @@ typedef struct {
 void init_gaussian_ptr(GaussianPtr *p, Arena* a, uint32_t size);
 void init_projected_gaussian_ptr(ProjectedGaussianPtr *p, Arena* a, uint32_t size);
 
+Mat3 compute_cov3d(Vec3 scale, Vec4 rot);
+
 // Old CPU functions (now on QPU)
 /*
 Vec3 eval_sh(Vec3 pos, Vec3* sh, Vec3 cam_pos);
-Mat3 compute_cov3d(Vec3 scale, Vec4 rot);
 Vec3 project_cov2d(Vec3 pos, Mat3 cov3d, Mat4 w2c, float fx, float fy);
 Vec3 compute_cov2d_inverse(Vec3 cov2d);
 float eval_gaussian_2d(float px, float py, float cx, float cy, Vec3 cov_inv);
