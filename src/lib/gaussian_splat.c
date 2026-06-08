@@ -273,8 +273,8 @@ void render_sort(GaussianSplat* gs) {
     // launch render for last frame
     render_inactive_frame(gs);
 
-    // key = tile (12 bits) | ~(upper 20 bits of depth)
-    // depth bits are flipped bc we want depth descending
+    // key = tile (12 bits) | (upper 20 bits of depth)
+    // depth bits are not flipped bc we want depth ascending
     // since we only have 12 bits for tile, we can only have max 4096 tiles
 
     uint32_t active_arena = gs->active_arena;

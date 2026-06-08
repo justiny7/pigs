@@ -218,8 +218,14 @@ mov id, unif
 
     # convert depth + tile to key
     ldtmu0
-    not r2, r4
-    shr r2, r2, 12
+
+    # (back to front)
+    # not r2, r4
+    # shr r2, r2, 12
+
+    # (front to back)
+    shr r2, r4, 12
+
     shl r1, r1, 20
     or r1, r1, r2
     reg_to_vpm_vec16 r1, 0

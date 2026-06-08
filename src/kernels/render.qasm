@@ -50,12 +50,13 @@
 .set out_r,                 ra12
 .set out_g,                 ra13
 .set out_b,                 ra14
-.set out_addr,              ra15
+# .set out_addr,              ra15 # unused??
 
 .set pixel_buffer,          ra16
 # ra16 - ra31 are reserved
 
 .set neg_half_M_LOG2E,      rb24
+.set transmittance,         rb25
 
 mov stride, unif
 mov NUM_TILES, unif
@@ -146,9 +147,10 @@ mov neg_half_M_LOG2E, -0.5 * M_LOG2E
     shl r0, tile_x, 4
     add x, r0, elem_num
 
-    # reset output of this tile
+    # reset output of this tile (bit 0 is transmittance)
+    mov r0, 0xFF000000
     .rep row, 16
-        mov pixel_buffer+row, 0
+        mov pixel_buffer+row, r0
     .endr
 
     ldtmu0
@@ -229,25 +231,26 @@ mov neg_half_M_LOG2E, -0.5 * M_LOG2E
             mov out_r, (pixel_buffer+row).unpack8cf
             mov out_g, (pixel_buffer+row).unpack8bf
             mov out_b, (pixel_buffer+row).unpack8af
+            mov transmittance, (pixel_buffer+row).unpack8df
 
-            # r0 stores alpha
+            # r0 stores alpha, r3 stores color multiplier
             fmul r0, cur_opacity, r4
-            fsub r3, 1.0, r0; fmul r1, cur_color_r, r0
-            
-            # calc out_r
-            fmul r2, r3, out_r
-            fadd r1, r1, r2; fmul r2, cur_color_g, r0
-            mov.pack8csf pixel_buffer+row, r1  # converts [0.0, 1.0] to [0, 255] in byte 2
 
-            # calc out_g
-            fmul r1, r3, out_g
-            fadd r1, r1, r2; fmul r2, cur_color_b, r0
-            mov.pack8bsf pixel_buffer+row, r1  # same op as above in byte 1
+            fmul r3, r0, transmittance
 
-            # calc out_b
-            fmul r1, r3, out_b
-            fadd r1, r1, r2
-            mov.pack8asf pixel_buffer+row, r1  # same op as above in byte 0
+            fmul r1, cur_color_r, r3; fsub r2, 1.0, r0
+            fadd r1, r1, out_r; fmul r0, cur_color_g, r3
+            mov.pack8csf pixel_buffer+row, r1
+
+            fadd r0, r0, out_g; fmul r1, cur_color_b, r3
+            mov.pack8bsf pixel_buffer+row, r0
+
+            fadd r1, r1, out_b
+            mov.pack8asf pixel_buffer+row, r1
+
+            fmul r2, transmittance, r2
+            mov.pack8dsf pixel_buffer+row, r2
+
         .endr
 
         brr -, :1
